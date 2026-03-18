@@ -6,8 +6,8 @@ interface ActivityCardProps {
 
 const ActivityCard = ({ activity }: ActivityCardProps) => {
   return (
-    <div className="border p-4 rounded-lg shadow-md">
-      <h3 className="text-lg font-bold">{activity.title}</h3>
+    <div className="border p-4 rounded-lg shadow-md mb-2">
+      <h3 className="text-lg font-bold mb-1">{activity.title}</h3>
       <p>{activity.description}</p>
       <p>{activity.location}</p>
     </div>

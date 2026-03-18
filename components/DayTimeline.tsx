@@ -9,10 +9,10 @@ const DayTimeline = ({ days }: DayTimelineProps) => {
     <div className="mt-4">
       {days.map((day, index) => (
         <div key={index} className="mb-2">
-          <h3 className="text-lg font-bold">Day {day.day}</h3>
+          <h3 className="text-lg font-bold mb-1">Day {day.day}</h3>
           <ul>
             {day.activities.map((activity, activityIndex) => (
-              <li key={activityIndex} className="flex items-center space-x-2">
+              <li key={activityIndex} className="flex items-center space-x-2 mb-1">
                 <span>{activity.time}</span>
                 <div className="border-l-4 pl-2">
                   <h4 className="font-bold">{activity.title}</h4>

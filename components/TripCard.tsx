@@ -40,8 +40,8 @@ const TripCard = ({ tripId }: TripProps) => {
   const trip = trips[tripId];
 
   return (
-    <div className="bg-white p-4 rounded-lg shadow-md">
-      <h2 className="text-xl font-bold">{trip.name}</h2>
+    <div className="bg-white p-4 rounded-lg shadow-md mb-4">
+      <h2 className="text-xl font-bold mb-2">{trip.name}</h2>
       <DayTimeline days={trip.days} />
     </div>
   );

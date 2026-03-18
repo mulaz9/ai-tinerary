@@ -60,14 +60,14 @@ const Sidebar = () => {
   const [selectedTrip, setSelectedTrip] = useState<Trip | null>(null);
 
   return (
-    <div className="w-64 bg-gray-100 p-4">
-      <h2 className="text-lg font-bold">Trips</h2>
+    <div className="w-64 bg-gray-100 p-4 shadow-md rounded-lg">
+      <h2 className="text-lg font-bold mb-4">Trips</h2>
       <ul>
         {trips.map((trip) => (
           <li
             key={trip.id}
             onClick={() => setSelectedTrip(trip)}
-            className={`cursor-pointer py-2 px-3 hover:bg-gray-200 ${selectedTrip?.id === trip.id ? "bg-gray-200" : ""}`}
+            className={`cursor-pointer py-2 px-3 hover:bg-gray-200 rounded-lg ${selectedTrip?.id === trip.id ? "bg-gray-200" : ""}`}
           >
             {trip.name}
           </li>
