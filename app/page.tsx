@@ -1,11 +1,3 @@
-import { Suspense } from "react";
-import Sidebar from "../components/Sidebar";
-
-export default function Home() {
-  return (
-    <div className="flex h-screen">
-      <Sidebar />
-      <Suspense fallback={<div>Loading...</div>}></Suspense>
-    </div>
-  );
+export default function Page() {
+  return <div>Hello</div>;
 }
