@@ -10,7 +10,7 @@ const trips: Trip[] = [
     endDate: '2026-06-29',
     location: 'Isole Baleari, Spagna',
     description:
-      'Itinerario in stile Airbnb moderno (dark mode): Palma + coste e calette. I primi 5 giorni sono super dettagliati con tappe, mappe e trasporto pubblico; gli ultimi giorni restano più leggeri.',
+      'Itinerario: Palma + coste e calette. I primi 5 giorni sono super dettagliati con tappe, mappe e trasporto pubblico; gli ultimi giorni restano più leggeri.',
     days: [
       {
         id: 'm-1',
