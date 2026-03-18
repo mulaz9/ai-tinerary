@@ -1,6 +1,6 @@
 import '../styles/globals.css';
 
-export default function RootLayout({
+export default function TripLayout({
   children,
 }: {
   children: React.ReactNode
