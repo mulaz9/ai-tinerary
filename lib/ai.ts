@@ -1,5 +1,6 @@
 import { Activity, Day, Trip, TransportInfo } from "../types";
 import { lookupImage } from "./images";
+import { buildMapsUrl } from "./maps";
 
 export interface GenerateTripInput {
   destination: string;
@@ -188,24 +189,6 @@ async function coverImageFor(destination: string): Promise<string | undefined> {
   return lookupImage(`${primary} cityscape`);
 }
 
-/**
- * Builds a Google Maps link. When an accommodation is known, the link opens
- * the directions view from the hotel to the activity; otherwise it falls
- * back to a simple search for the destination.
- */
-function buildMapsUrl(destination: string, accommodation?: string): string {
-  const dest = encodeURIComponent(destination);
-  const origin = accommodation?.trim();
-  if (origin) {
-    return (
-      `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(
-        origin,
-      )}&destination=${dest}`
-    );
-  }
-  return `https://www.google.com/maps/search/?api=1&query=${dest}`;
-}
-
 function normalizeTransport(raw: RawActivity["transport"]): TransportInfo {
   const mode = (TRANSPORT_MODES as readonly string[]).includes(raw?.mode ?? "")
     ? (raw!.mode as TransportInfo["mode"])
@@ -251,10 +234,10 @@ async function normalizeTrip(
         typeof ra.durationMins === "number" && ra.durationMins > 0
           ? Math.round(ra.durationMins)
           : 60,
-      mapsUrl: buildMapsUrl(
-        ra.location?.trim() || input.destination,
-        input.accommodation,
-      ),
+      mapsUrl: buildMapsUrl(ra.location?.trim() || input.destination, {
+        destination: input.destination,
+        origin: input.accommodation,
+      }),
       transport: normalizeTransport(ra.transport),
     }));
 
@@ -310,7 +293,9 @@ function buildBasePrompt(input: GenerateTripInput): string {
     hotel
       ? `- Organizza i percorsi partendo e rientrando all'alloggio "${hotel}"; il campo "transport.summary" di ogni attività deve descrivere come muoversi dall'alloggio o dall'attività precedente.`
       : "",
-    `- Per ogni attività specifica: time, title, description breve, location (luogo preciso), durationMins (numero intero di minuti), transport { mode, summary }.`,
+    `- Per ogni attività specifica: time, title, description breve, location, durationMins (numero intero di minuti), transport { mode, summary }.`,
+    `- Il campo "location" DEVE essere geocodabile su Google Maps senza ambiguità: usa il nome ufficiale del luogo seguito dalla città e dal paese (es. "Colosseo, Roma, Italia", "Museo del Prado, Madrid, Spagna"). Se conosci l'indirizzo preciso, includilo ("Piazza del Colosseo 1, Roma, Italia"). Evita nomi generici ("centro città", "ristorante tipico"): specifica sempre un POI o un indirizzo reale e verificabile.`,
+    `- Non inventare luoghi: se non sei certo dell'esistenza di un nome, usa un punto di riferimento famoso e realmente esistente nella zona.`,
     `- mode deve essere uno tra: bus, tram, metro, train, walk, ferry, taxi.`,
     `- tags facoltativi (es. "cibo", "cultura", "mare", "relax", "foto", "shopping", "natura", "logistica", "passeggiata").`,
     `- "name" del viaggio breve e accattivante; "subtitle" con date leggibili; "description" 1-2 frasi.`,

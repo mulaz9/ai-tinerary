@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { Trip } from "../types";
 import SafeImage from "./SafeImage";
 import { useAllTrips } from "../lib/trips-store";
+import UserMenu from "./UserMenu";
 
 const Sidebar = () => {
   const [selectedTrip, setSelectedTrip] = useState<Trip | null>(null);
@@ -19,10 +20,9 @@ const Sidebar = () => {
           <p className="text-xs font-semibold tracking-wide text-white/50">AI-tinerary</p>
           <p className="text-lg font-semibold text-white">Itinerari</p>
         </div>
-        <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-white/60">
-          Demo
-        </span>
       </div>
+
+      <UserMenu variant="sidebar" />
 
       <div className="mt-6">
         <Link

@@ -8,6 +8,7 @@ import SafeImage from "../../../components/SafeImage";
 import { updateUserTrip, useAllTrips } from "../../../lib/trips-store";
 import type { WeatherInfo } from "../../../lib/weather";
 import { useActivityImages } from "../../../lib/use-activity-images";
+import { buildMapsSearchUrl, buildMapsUrl } from "../../../lib/maps";
 import type { Day, Trip } from "../../../types";
 
 /**
@@ -18,17 +19,15 @@ import type { Day, Trip } from "../../../types";
  */
 function applyMapsOrigin(trip: Trip): Trip {
   const origin = trip.accommodation?.trim();
+  const destination = trip.location;
   const nextDays: Day[] = trip.days.map((day) => ({
     ...day,
     activities: day.activities.map((a) => ({
       ...a,
-      mapsUrl: origin
-        ? `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(
-            origin,
-          )}&destination=${encodeURIComponent(a.location || trip.location)}`
-        : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-            a.location || trip.location,
-          )}`,
+      mapsUrl: buildMapsUrl(a.location || trip.location, {
+        destination,
+        origin,
+      }),
     })),
   }));
   return { ...trip, days: nextDays };
@@ -193,9 +192,7 @@ export default function TripDetails({
             </span>
             {trip.accommodation ? (
               <a
-                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                  trip.accommodation,
-                )}`}
+                href={buildMapsSearchUrl(trip.accommodation, trip.location)}
                 target="_blank"
                 rel="noreferrer"
                 className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/20 bg-emerald-500/10 px-3 py-1.5 text-emerald-200 transition hover:bg-emerald-500/20"

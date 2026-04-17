@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAllTrips } from "../lib/trips-store";
+import UserMenu from "./UserMenu";
 
 // ── minimal inline SVG icons (no external dependency) ──────────────────────
 
@@ -44,6 +45,8 @@ export default function MobileNav() {
   const pathname = usePathname();
   const { trips } = useAllTrips();
 
+  if (pathname === "/login") return null;
+
   return (
     <>
       {/* ── Top bar (mobile only) ────────────────────────────────────────── */}
@@ -52,15 +55,7 @@ export default function MobileNav() {
           ai‑tinerary
         </Link>
 
-        {/* Quick-access to the first trip (Mallorca) */}
-        {trips[0] ? (
-          <Link
-            href={`/trip/${trips[0].id}`}
-            className="rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/80 transition hover:bg-white/10"
-          >
-            {trips[0].name} →
-          </Link>
-        ) : null}
+        <UserMenu variant="compact" />
       </header>
 
       {/* ── Bottom nav (mobile only) ─────────────────────────────────────── */}
