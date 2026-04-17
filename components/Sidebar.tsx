@@ -3,13 +3,14 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import trips from "../data/trips";
 import { Trip } from "../types";
 import SafeImage from "./SafeImage";
+import { useAllTrips } from "../lib/trips-store";
 
 const Sidebar = () => {
   const [selectedTrip, setSelectedTrip] = useState<Trip | null>(null);
   const pathname = usePathname();
+  const { trips } = useAllTrips();
 
   return (
     <aside className="fixed inset-y-0 left-0 hidden w-80 shrink-0 overflow-y-auto border-r border-white/10 bg-[#141414]/90 p-6 backdrop-blur lg:block">
@@ -36,6 +37,11 @@ const Sidebar = () => {
 
       <nav className="mt-5">
         <p className="px-3 text-xs font-semibold text-white/40">Viaggi</p>
+        {trips.length === 0 ? (
+          <p className="mt-2 rounded-xl border border-dashed border-white/10 bg-white/[0.02] px-3 py-4 text-xs leading-relaxed text-white/40">
+            Nessun viaggio ancora. Creane uno con l&apos;AI dalla home.
+          </p>
+        ) : null}
         <ul className="mt-2 space-y-1">
           {trips.map((trip) => {
             const active = pathname?.startsWith(`/trip/${trip.id}`);

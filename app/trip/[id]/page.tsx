@@ -1,18 +1,108 @@
+"use client";
+
+import { use, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Sidebar from "../../../components/Sidebar";
 import DayTimeline from "../../../components/DayTimeline";
 import SafeImage from "../../../components/SafeImage";
-import trips from "../../../data/trips";
+import { updateUserTrip, useAllTrips } from "../../../lib/trips-store";
+import type { WeatherInfo } from "../../../lib/weather";
+import { useActivityImages } from "../../../lib/use-activity-images";
+import type { Day, Trip } from "../../../types";
 
-export default async function TripDetails({
+/**
+ * Rebuilds activity `mapsUrl` values to reflect the trip's current
+ * accommodation. Called every time we serialize the trip back to localStorage
+ * so old trips without an origin get retro-upgraded as soon as the user
+ * edits them.
+ */
+function applyMapsOrigin(trip: Trip): Trip {
+  const origin = trip.accommodation?.trim();
+  const nextDays: Day[] = trip.days.map((day) => ({
+    ...day,
+    activities: day.activities.map((a) => ({
+      ...a,
+      mapsUrl: origin
+        ? `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(
+            origin,
+          )}&destination=${encodeURIComponent(a.location || trip.location)}`
+        : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+            a.location || trip.location,
+          )}`,
+    })),
+  }));
+  return { ...trip, days: nextDays };
+}
+
+export default function TripDetails({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const { id } = await params;
-  const trip = trips.find((t) => t.id === id);
+  const { id } = use(params);
+  const { trips, hydrated } = useAllTrips();
+  const storedTrip = trips.find((t) => t.id === id);
 
-  if (!trip) {
+  // Local, editable copy of the trip. This is what the UI renders and mutates
+  // in response to remove / reorder actions. We re-sync it whenever the
+  // stored version changes identity (initial load, or an external update).
+  const [trip, setTrip] = useState<Trip | undefined>(storedTrip);
+
+  useEffect(() => {
+    if (storedTrip) setTrip(storedTrip);
+  }, [storedTrip]);
+
+  const [weatherByDate, setWeatherByDate] = useState<
+    Record<string, WeatherInfo>
+  >({});
+  const imagesByActivityId = useActivityImages(trip);
+
+  // ── Weather fetch (unchanged) ─────────────────────────────────────────
+  const datesKey = useMemo(
+    () => trip?.days.map((d) => d.date).join(",") ?? "",
+    [trip],
+  );
+
+  useEffect(() => {
+    if (!trip || !datesKey) return;
+    let cancelled = false;
+    const url =
+      `/api/weather?location=${encodeURIComponent(trip.location)}` +
+      `&dates=${encodeURIComponent(datesKey)}`;
+
+    fetch(url)
+      .then((res) => (res.ok ? res.json() : { weatherByDate: {} }))
+      .then((data: { weatherByDate?: Record<string, WeatherInfo> }) => {
+        if (!cancelled) setWeatherByDate(data.weatherByDate ?? {});
+      })
+      .catch(() => {
+        if (!cancelled) setWeatherByDate({});
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [trip?.location, datesKey, trip]);
+
+  // ── Mutations ─────────────────────────────────────────────────────────
+
+  const commit = useCallback((next: Trip) => {
+    const normalized = applyMapsOrigin(next);
+    setTrip(normalized);
+    updateUserTrip(normalized);
+  }, []);
+
+  const handleChangeDays = useCallback(
+    (nextDays: Day[]) => {
+      if (!trip) return;
+      commit({ ...trip, days: nextDays });
+    },
+    [trip, commit],
+  );
+
+  // ── Render guards ─────────────────────────────────────────────────────
+
+  if (hydrated && !trip) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#121212] text-white">
         <div className="text-center">
@@ -24,6 +114,14 @@ export default async function TripDetails({
             Torna alla home
           </Link>
         </div>
+      </div>
+    );
+  }
+
+  if (!trip) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#121212] text-white/50">
+        <p className="text-sm">Caricamento…</p>
       </div>
     );
   }
@@ -93,11 +191,35 @@ export default async function TripDetails({
             <span className="inline-flex items-center gap-1 rounded-full border border-white/[0.06] bg-white/[0.03] px-3 py-1.5">
               {trip.days.length} giorni · {totalActivities} attività
             </span>
+            {trip.accommodation ? (
+              <a
+                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                  trip.accommodation,
+                )}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/20 bg-emerald-500/10 px-3 py-1.5 text-emerald-200 transition hover:bg-emerald-500/20"
+                title="Apri su Google Maps"
+              >
+                <span aria-hidden>🏨</span>
+                {trip.accommodation}
+              </a>
+            ) : null}
+            {trip.isUserCreated ? (
+              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/20 bg-emerald-500/10 px-3 py-1.5 text-emerald-300">
+                Generato con AI
+              </span>
+            ) : null}
           </div>
         </div>
 
         {/* ── Timeline ──────────────────────────────────────────────────── */}
-        <DayTimeline days={trip.days} />
+        <DayTimeline
+          days={trip.days}
+          weatherByDate={weatherByDate}
+          imagesByActivityId={imagesByActivityId}
+          onChangeDays={handleChangeDays}
+        />
       </main>
     </div>
   );

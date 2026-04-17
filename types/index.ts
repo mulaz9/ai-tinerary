@@ -9,7 +9,12 @@ export interface Trip {
   /** @deprecated - prefer coverImageUrl (keeping for backward compatibility) */
   coverEmoji?: string;
   location: string;
+  /** Optional free-form place the traveller is staying at (hotel, airbnb,
+   *  friend's place…). When set, the UI uses it as the origin for every
+   *  directions link so you can see "from the hotel to X" with one tap. */
+  accommodation?: string;
   days: Day[];
+  isUserCreated?: boolean;
 }
 
 export interface Day {

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import trips from "../data/trips";
+import { useAllTrips } from "../lib/trips-store";
 
 // ── minimal inline SVG icons (no external dependency) ──────────────────────
 
@@ -42,6 +42,7 @@ function IconMap({ active }: { active: boolean }) {
 
 export default function MobileNav() {
   const pathname = usePathname();
+  const { trips } = useAllTrips();
 
   return (
     <>

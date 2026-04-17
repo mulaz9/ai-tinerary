@@ -1,6 +1,9 @@
+"use client";
+
 import Link from "next/link";
 import { Trip } from "../types";
 import SafeImage from "./SafeImage";
+import { removeUserTrip } from "../lib/trips-store";
 
 interface TripProps {
   trip: Trip;
@@ -10,8 +13,49 @@ const TripCard = ({ trip }: TripProps) => {
   const totalActivities = trip.days.reduce((acc, d) => acc + d.activities.length, 0);
   const firstDay = trip.days[0];
 
+  const handleRemove = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const ok = window.confirm(`Rimuovere il viaggio "${trip.name}"?`);
+    if (!ok) return;
+    removeUserTrip(trip.id);
+  };
+
   return (
-    <div className="group overflow-hidden rounded-2xl border border-white/[0.06] bg-[#1a1a1a] transition-all duration-200 hover:border-white/10 hover:shadow-lg hover:shadow-black/20">
+    <div className="group relative overflow-hidden rounded-2xl border border-white/[0.06] bg-[#1a1a1a] transition-all duration-200 hover:border-white/10 hover:shadow-lg hover:shadow-black/20">
+      {trip.isUserCreated ? (
+        <>
+          <span className="absolute left-3 top-3 z-10 rounded-full bg-emerald-500/90 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-950 shadow">
+            AI
+          </span>
+          <button
+            type="button"
+            onClick={handleRemove}
+            aria-label={`Rimuovi ${trip.name}`}
+            title="Rimuovi viaggio"
+            className="absolute right-3 top-3 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-black/50 text-white/70 backdrop-blur transition hover:border-red-400/40 hover:bg-red-500/20 hover:text-red-200"
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <polyline points="3 6 5 6 21 6" />
+              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+              <path d="M10 11v6" />
+              <path d="M14 11v6" />
+              <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2" />
+            </svg>
+          </button>
+        </>
+      ) : null}
+
       {/* Cover band */}
       {trip.coverImageUrl ? (
         <div className="relative overflow-hidden">

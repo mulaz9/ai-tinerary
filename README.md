@@ -16,6 +16,68 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
+## AI trip generation
+
+The "+ Nuovo viaggio" button on the home page generates a full itinerary
+from a destination and arrival/departure date-times. The backend tries
+**Google Gemini** first and automatically falls back to **Groq** if Gemini
+fails (rate-limit, auth problem, model missing, network error, …).
+Configuring at least one provider is required.
+
+### Option A — Gemini (preferred)
+
+1. Get a free API key at [Google AI Studio](https://aistudio.google.com/app/apikey).
+2. Add it to `.env.local` in the project root:
+
+   ```bash
+   GEMINI_API_KEY=your_key_here
+   ```
+
+Default model: `gemini-2.5-flash`. On `rate_limit` or `model_not_found` the
+server auto-retries on `gemini-2.5-flash-lite` (higher free-tier budget).
+Override the primary via `GEMINI_MODEL=...` in `.env.local`.
+
+Approximate free-tier daily request budgets:
+
+| Model | Free quota (per day, approx.) |
+| --- | --- |
+| `gemini-2.5-flash` | ~250 |
+| `gemini-2.5-flash-lite` | ~1,000 |
+| `gemini-2.0-flash` | ~200 |
+
+### Option B — Groq (alternative / fallback)
+
+Groq is a free, very fast provider running open models (Llama 3.3 70B by
+default). Works on its own, or as an automatic fallback when Gemini fails.
+
+1. Sign up and create a key at [console.groq.com/keys](https://console.groq.com/keys).
+2. Add it to `.env.local`:
+
+   ```bash
+   GROQ_API_KEY=gsk_your_key_here
+   # optional override:
+   # GROQ_MODEL=llama-3.3-70b-versatile
+   ```
+
+Free tier (at time of writing): ~30 requests/minute and ~14,400
+requests/day on `llama-3.3-70b-versatile`.
+
+### Fallback behaviour
+
+When both keys are configured, the orchestrator tries Gemini first and
+transparently switches to Groq on any of: `rate_limit`, `auth`,
+`model_not_found`, `network`, `empty`, `unknown`. Invalid user input
+(`bad_request`) is returned immediately without a retry. When a fallback is
+used, the dialog briefly confirms which provider ultimately produced the
+itinerary.
+
+### Storage
+
+Trips are stored in the browser's `localStorage`
+(key: `ai-tinerary.user-trips.v1`), so they only appear on the device that
+generated them. There are no hardcoded trips — the app starts empty and
+every itinerary comes from the AI generator.
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
