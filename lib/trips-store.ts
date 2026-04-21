@@ -88,6 +88,27 @@ function clearLocal(): void {
 
 // ─── Supabase backend helpers ───────────────────────────────────────────
 
+// Supabase's PostgrestError has non-enumerable fields that stringify as
+// `{}`, which is what was showing up in the Next.js dev overlay. Grab
+// every own property (including non-enumerable) so we actually see the
+// message, code, details, hint, status — whichever are present.
+function logSupabaseError(tag: string, error: unknown): void {
+  if (error == null) {
+    console.error(`[trips-store] ${tag}: (no error details)`);
+    return;
+  }
+  if (typeof error !== "object") {
+    console.error(`[trips-store] ${tag}:`, error);
+    return;
+  }
+  const dump: Record<string, unknown> = {};
+  for (const key of Object.getOwnPropertyNames(error)) {
+    dump[key] = (error as Record<string, unknown>)[key];
+  }
+  const e = error as { message?: string };
+  console.error(`[trips-store] ${tag}:`, e.message ?? "(empty)", dump);
+}
+
 async function persistTrip(trip: Trip, userId: string): Promise<void> {
   const supabase = createSupabaseBrowserClient();
   if (!supabase) return;
@@ -100,7 +121,7 @@ async function persistTrip(trip: Trip, userId: string): Promise<void> {
     },
     { onConflict: "id" },
   );
-  if (error) console.error("[trips-store] upsert failed", error);
+  if (error) logSupabaseError("upsert failed", error);
 }
 
 async function migrateLocalToSupabase(userId: string): Promise<void> {
@@ -120,7 +141,7 @@ async function migrateLocalToSupabase(userId: string): Promise<void> {
     .from("trips")
     .upsert(rows, { onConflict: "id" });
   if (error) {
-    console.error("[trips-store] migration failed", error);
+    logSupabaseError("migration failed", error);
     return;
   }
   clearLocal();
@@ -199,30 +220,63 @@ export function useAllTrips(): {
     let cancelled = false;
     let channel: ReturnType<NonNullable<typeof supabase>["channel"]> | null =
       null;
+    // Per-effect-instance bookkeeping so we don't re-migrate or
+    // re-subscribe when `onAuthStateChange` fires TOKEN_REFRESHED /
+    // USER_UPDATED events for a user we're already tracking.
+    let subscribedUserId: string | null = null;
+    const migratedUserIds = new Set<string>();
 
     async function fetchFor(userId: string) {
       if (!supabase) return;
-      const { data, error } = await supabase
-        .from("trips")
-        .select("id, data, updated_at")
-        .eq("user_id", userId)
-        .order("updated_at", { ascending: false });
-      if (cancelled) return;
-      if (error) {
-        console.error("[trips-store] fetch failed", error);
-        return;
+      try {
+        const { data, error } = await supabase
+          .from("trips")
+          .select("id, data, updated_at")
+          .eq("user_id", userId)
+          .order("updated_at", { ascending: false });
+        if (cancelled) return;
+        if (error) {
+          logSupabaseError("fetch failed", error);
+          return;
+        }
+        const rows = (data ?? []).map(
+          (row) => ({ ...(row.data as Trip), id: row.id, isUserCreated: true }),
+        );
+        setCache(rows);
+      } catch (err) {
+        if (cancelled) return;
+        logSupabaseError("fetch threw", err);
       }
-      const rows = (data ?? []).map(
-        (row) => ({ ...(row.data as Trip), id: row.id, isUserCreated: true }),
-      );
-      setCache(rows);
+    }
+
+    function removeChannelsByTopic(topic: string) {
+      if (!supabase) return;
+      // realtime-js stores channels under `realtime:<topic>`. `channel()`
+      // returns the existing one if found, which causes the "cannot add
+      // postgres_changes callbacks after subscribe()" error when it's
+      // already been subscribed (e.g. from a previous effect cycle, a
+      // dev-mode StrictMode remount, or an HMR reload that preserved the
+      // supabase-ssr singleton). Nuke any leftovers for this topic before
+      // creating a new channel.
+      const fullTopic = `realtime:${topic}`;
+      for (const existing of supabase.getChannels()) {
+        if (existing.topic === fullTopic) {
+          supabase.removeChannel(existing);
+        }
+      }
     }
 
     function subscribe(userId: string) {
       if (!supabase) return;
-      channel?.unsubscribe();
+      if (subscribedUserId === userId && channel) return;
+
+      const topic = `trips:${userId}`;
+      removeChannelsByTopic(topic);
+      channel = null;
+      subscribedUserId = userId;
+
       channel = supabase
-        .channel(`trips:${userId}`)
+        .channel(topic)
         .on(
           "postgres_changes",
           {
@@ -240,51 +294,66 @@ export function useAllTrips(): {
 
     async function enterAuthed(userId: string) {
       authedUserId = userId;
-      await migrateLocalToSupabase(userId);
-      await fetchFor(userId);
+      if (!migratedUserIds.has(userId)) {
+        migratedUserIds.add(userId);
+        await migrateLocalToSupabase(userId);
+        if (cancelled) return;
+      }
+      // Skip the initial fetch if we're already subscribed — the realtime
+      // channel will keep us in sync and the cache is already populated.
+      if (subscribedUserId !== userId) {
+        await fetchFor(userId);
+        if (cancelled) return;
+      }
       subscribe(userId);
     }
 
     function enterGuest() {
+      const prevSubscribed = subscribedUserId;
       authedUserId = null;
-      channel?.unsubscribe();
+      subscribedUserId = null;
+      if (supabase && prevSubscribed) {
+        removeChannelsByTopic(`trips:${prevSubscribed}`);
+      }
       channel = null;
       cache = readLocal();
       refreshFromCache();
     }
 
-    async function init() {
-      if (supabase) {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
+    // `onAuthStateChange` fires an INITIAL_SESSION event on mount, so we
+    // don't need a separate `init()` — doing both caused a race where
+    // `enterAuthed` ran twice and the second `subscribe()` attached `.on`
+    // to an already-subscribed realtime channel.
+    if (supabase) {
+      const authSub = supabase.auth.onAuthStateChange((_event, session) => {
         if (cancelled) return;
-        if (user) {
-          await enterAuthed(user.id);
+        const userId = session?.user?.id;
+        if (userId) {
+          void enterAuthed(userId).finally(() => {
+            if (!cancelled) setHydrated(true);
+          });
         } else {
           enterGuest();
+          setHydrated(true);
         }
-      } else {
-        enterGuest();
-      }
-      if (!cancelled) setHydrated(true);
+      });
+
+      return () => {
+        cancelled = true;
+        if (subscribedUserId) {
+          removeChannelsByTopic(`trips:${subscribedUserId}`);
+        }
+        channel = null;
+        authSub.data.subscription.unsubscribe();
+        window.removeEventListener(EVENT_NAME, onCustom as EventListener);
+        window.removeEventListener("storage", onStorage);
+      };
     }
 
-    void init();
-
-    const authSub = supabase?.auth.onAuthStateChange((_event, session) => {
-      const userId = session?.user?.id;
-      if (userId) {
-        void enterAuthed(userId);
-      } else {
-        enterGuest();
-      }
-    });
-
+    enterGuest();
+    setHydrated(true);
     return () => {
       cancelled = true;
-      channel?.unsubscribe();
-      authSub?.data.subscription.unsubscribe();
       window.removeEventListener(EVENT_NAME, onCustom as EventListener);
       window.removeEventListener("storage", onStorage);
     };
