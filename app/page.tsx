@@ -1,14 +1,24 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import Sidebar from "../components/Sidebar";
 import TripCard from "../components/TripCard";
 import NewTripDialog from "../components/NewTripDialog";
 import { useAllTrips } from "../lib/trips-store";
+import { fetchTripsSharedWithMe } from "../lib/trip-sharing";
+import type { SharePermission, Trip } from "../types";
+
+type SharedTrip = Trip & { _shareToken: string; _sharePermission: SharePermission };
 
 export default function Home() {
   const { trips } = useAllTrips();
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [sharedTrips, setSharedTrips] = useState<SharedTrip[]>([]);
+
+  useEffect(() => {
+    fetchTripsSharedWithMe().then(setSharedTrips);
+  }, []);
 
   return (
     <div className="min-h-screen bg-[#121212] text-white">
@@ -110,6 +120,57 @@ export default function Home() {
           </div>
         </section>
       </main>
+
+      {sharedTrips.length > 0 && (
+        <section className="mx-auto mt-12 max-w-6xl px-4 pb-10 sm:px-5 lg:ml-80">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-base font-semibold text-white">
+                Condivisi con me
+              </h3>
+              <p className="mt-0.5 text-xs text-white/40">
+                Viaggi condivisi da altri utenti
+              </p>
+            </div>
+            <span className="rounded-full border border-white/6 bg-white/30 px-3 py-1 text-[11px] font-medium text-white/50">
+              {sharedTrips.length} condivisi
+            </span>
+          </div>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {sharedTrips.map((st) => (
+              <Link
+                key={st._shareToken}
+                href={`/trip/shared/${st._shareToken}`}
+                className="group rounded-2xl border border-white/6 bg-white/20 p-4 transition-all duration-200 hover:border-white/10 hover:bg-white/40 active:scale-[0.98]"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-white">
+                    {st.name}
+                  </p>
+                  <span className="shrink-0 rounded-full border border-blue-400/20 bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium text-blue-300">
+                    {st._sharePermission === "read" ? "lettura" : "scrittura"}
+                  </span>
+                </div>
+                <p className="mt-1.5 text-xs text-white/50">
+                  {st.location} · {st.startDate} → {st.endDate}
+                </p>
+                <p className="mt-1.5 line-clamp-2 text-[13px] leading-relaxed text-white/45">
+                  {st.description}
+                </p>
+                <div className="mt-3 flex items-center justify-between">
+                  <span className="text-[11px] text-white/35">
+                    {st.days.length} giorni
+                  </span>
+                  <span className="text-[11px] font-medium text-blue-400/60 opacity-0 transition-opacity group-hover:opacity-100">
+                    Apri →
+                  </span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
 
       <NewTripDialog
         open={dialogOpen}

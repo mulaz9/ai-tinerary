@@ -44,3 +44,14 @@ export interface TransportInfo {
   summary: string; // short and readable
   routeUrl?: string; // link to route planner
 }
+
+export type SharePermission = "read" | "write";
+
+export interface TripShare {
+  id: string;
+  trip_id: string;
+  owner_id: string;
+  share_token: string;
+  permission: SharePermission;
+  created_at: string;
+}

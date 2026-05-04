@@ -2,22 +2,22 @@
 
 import { use, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import Sidebar from "../../../components/Sidebar";
-import DayTimeline from "../../../components/DayTimeline";
-import SafeImage from "../../../components/SafeImage";
-import ShareTripDialog from "../../../components/ShareTripDialog";
-import { updateUserTrip, useAllTrips } from "../../../lib/trips-store";
-import type { WeatherInfo } from "../../../lib/weather";
-import { useActivityImages } from "../../../lib/use-activity-images";
-import { buildMapsSearchUrl, buildMapsUrl } from "../../../lib/maps";
-import type { Day, Trip } from "../../../types";
+import { useRouter } from "next/navigation";
+import Sidebar from "../../../../components/Sidebar";
+import DayTimeline from "../../../../components/DayTimeline";
+import SafeImage from "../../../../components/SafeImage";
+import {
+  fetchSharedTrip,
+  resolveShareToken,
+  saveVisitedShare,
+  updateSharedTrip,
+} from "../../../../lib/trip-sharing";
+import { createSupabaseBrowserClient } from "../../../../lib/supabase/client";
+import type { WeatherInfo } from "../../../../lib/weather";
+import { useActivityImages } from "../../../../lib/use-activity-images";
+import { buildMapsSearchUrl, buildMapsUrl } from "../../../../lib/maps";
+import type { Day, SharePermission, Trip } from "../../../../types";
 
-/**
- * Rebuilds activity `mapsUrl` values to reflect the trip's current
- * accommodation. Called every time we serialize the trip back to localStorage
- * so old trips without an origin get retro-upgraded as soon as the user
- * edits them.
- */
 function applyMapsOrigin(trip: Trip): Trip {
   const origin = trip.accommodation?.trim();
   const destination = trip.location;
@@ -34,32 +34,74 @@ function applyMapsOrigin(trip: Trip): Trip {
   return { ...trip, days: nextDays };
 }
 
-export default function TripDetails({
+export default function SharedTripPage({
   params,
 }: {
-  params: Promise<{ id: string }>;
+  params: Promise<{ token: string }>;
 }) {
-  const { id } = use(params);
-  const { trips, hydrated } = useAllTrips();
-  const storedTrip = trips.find((t) => t.id === id);
+  const { token } = use(params);
+  const router = useRouter();
 
-  // Local, editable copy of the trip. This is what the UI renders and mutates
-  // in response to remove / reorder actions. We re-sync it whenever the
-  // stored version changes identity (initial load, or an external update).
-  const [trip, setTrip] = useState<Trip | undefined>(storedTrip);
-
-  useEffect(() => {
-    if (storedTrip) setTrip(storedTrip);
-  }, [storedTrip]);
-
-  const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [trip, setTrip] = useState<Trip | null>(null);
+  const [permission, setPermission] = useState<SharePermission>("read");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const [weatherByDate, setWeatherByDate] = useState<
     Record<string, WeatherInfo>
   >({});
-  const imagesByActivityId = useActivityImages(trip);
+  const imagesByActivityId = useActivityImages(trip ?? undefined);
 
-  // ── Weather fetch (unchanged) ─────────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      const supabase = createSupabaseBrowserClient();
+      if (!supabase) {
+        setError("Supabase non configurato.");
+        setLoading(false);
+        return;
+      }
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) {
+        router.push(
+          `/login?next=${encodeURIComponent(`/trip/shared/${token}`)}`,
+        );
+        return;
+      }
+
+      const resolved = await resolveShareToken(token);
+      if (!resolved) {
+        if (!cancelled) {
+          setError("Link di condivisione non valido o revocato.");
+          setLoading(false);
+        }
+        return;
+      }
+
+      setPermission(resolved.permission);
+      saveVisitedShare(token, resolved.tripId, resolved.permission);
+      const tripData = await fetchSharedTrip(resolved.tripId);
+      if (!cancelled) {
+        if (tripData) {
+          setTrip(tripData);
+        } else {
+          setError("Impossibile caricare il viaggio condiviso.");
+        }
+        setLoading(false);
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, router]);
+
+  // Weather fetch
   const datesKey = useMemo(
     () => trip?.days.map((d) => d.date).join(",") ?? "",
     [trip],
@@ -86,13 +128,14 @@ export default function TripDetails({
     };
   }, [trip?.location, datesKey, trip]);
 
-  // ── Mutations ─────────────────────────────────────────────────────────
-
-  const commit = useCallback((next: Trip) => {
-    const normalized = applyMapsOrigin(next);
-    setTrip(normalized);
-    updateUserTrip(normalized);
-  }, []);
+  const commit = useCallback(
+    (next: Trip) => {
+      const normalized = applyMapsOrigin(next);
+      setTrip(normalized);
+      void updateSharedTrip(normalized);
+    },
+    [],
+  );
 
   const handleChangeDays = useCallback(
     (nextDays: Day[]) => {
@@ -102,13 +145,21 @@ export default function TripDetails({
     [trip, commit],
   );
 
-  // ── Render guards ─────────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#121212] text-white/50">
+        <p className="text-sm">Caricamento viaggio condiviso…</p>
+      </div>
+    );
+  }
 
-  if (hydrated && !trip) {
+  if (error || !trip) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#121212] text-white">
         <div className="text-center">
-          <p className="text-sm text-white/50">Viaggio non trovato.</p>
+          <p className="text-sm text-white/50">
+            {error ?? "Viaggio non trovato."}
+          </p>
           <Link
             href="/"
             className="mt-4 inline-flex rounded-xl bg-white px-4 py-2 text-sm font-semibold text-gray-900 transition hover:bg-white/90"
@@ -116,14 +167,6 @@ export default function TripDetails({
             Torna alla home
           </Link>
         </div>
-      </div>
-    );
-  }
-
-  if (!trip) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[#121212] text-white/50">
-        <p className="text-sm">Caricamento…</p>
       </div>
     );
   }
@@ -137,9 +180,8 @@ export default function TripDetails({
     <div className="min-h-screen bg-[#121212] text-white">
       <Sidebar />
 
-      {/* pb-24 = clearance for mobile bottom nav */}
       <main className="mx-auto max-w-6xl px-4 pb-24 sm:px-5 lg:ml-80 lg:pb-10">
-        {/* ── Hero cover ───────────────────────────────────────────────── */}
+        {/* Hero cover */}
         <div className="relative -mx-4 sm:-mx-5 lg:mx-0 lg:mt-6 lg:overflow-hidden lg:rounded-3xl">
           {trip.coverImageUrl ? (
             <SafeImage
@@ -152,10 +194,8 @@ export default function TripDetails({
             <div className="h-52 w-full bg-gradient-to-br from-emerald-900/40 via-slate-800 to-indigo-900/40 sm:h-64 lg:h-72" />
           )}
 
-          {/* Gradient overlay for text readability */}
           <div className="absolute inset-0 bg-gradient-to-t from-[#121212] via-[#121212]/60 to-transparent" />
 
-          {/* Title over image */}
           <div className="absolute inset-x-0 bottom-0 px-5 pb-5 sm:px-6 sm:pb-6">
             <div className="flex flex-wrap items-end justify-between gap-4">
               <div>
@@ -163,30 +203,22 @@ export default function TripDetails({
                   {trip.name}
                 </h1>
                 {trip.subtitle ? (
-                  <p className="mt-1 text-sm text-white/70 drop-shadow">{trip.subtitle}</p>
+                  <p className="mt-1 text-sm text-white/70 drop-shadow">
+                    {trip.subtitle}
+                  </p>
                 ) : null}
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShareDialogOpen(true)}
-                  className="hidden rounded-xl border border-white/15 bg-white/10 px-3 py-2 text-sm font-semibold text-white backdrop-blur transition hover:bg-white/20 sm:inline-flex items-center gap-1.5"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
-                  Condividi
-                </button>
-                <Link
-                  href="/"
-                  className="hidden rounded-xl border border-white/15 bg-white/10 px-3 py-2 text-sm font-semibold text-white backdrop-blur transition hover:bg-white/20 sm:inline-flex"
-                >
-                  ← Home
-                </Link>
-              </div>
+              <Link
+                href="/"
+                className="hidden rounded-xl border border-white/15 bg-white/10 px-3 py-2 text-sm font-semibold text-white backdrop-blur transition hover:bg-white/20 sm:inline-flex"
+              >
+                ← Home
+              </Link>
             </div>
           </div>
         </div>
 
-        {/* ── Trip info row ─────────────────────────────────────────────── */}
+        {/* Trip info row */}
         <div className="mt-5 animate-fade-in-up px-1">
           <p className="max-w-2xl text-sm leading-relaxed text-white/55">
             {trip.description}
@@ -215,28 +247,21 @@ export default function TripDetails({
                 {trip.accommodation}
               </a>
             ) : null}
-            {trip.isUserCreated ? (
-              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/20 bg-emerald-500/10 px-3 py-1.5 text-emerald-300">
-                Generato con AI
-              </span>
-            ) : null}
+            <span className="inline-flex items-center gap-1 rounded-full border border-blue-400/20 bg-blue-500/10 px-3 py-1.5 text-blue-300">
+              Condiviso ·{" "}
+              {permission === "read" ? "sola lettura" : "lettura e scrittura"}
+            </span>
           </div>
         </div>
 
-        {/* ── Timeline ──────────────────────────────────────────────────── */}
+        {/* Timeline */}
         <DayTimeline
           days={trip.days}
           weatherByDate={weatherByDate}
           imagesByActivityId={imagesByActivityId}
-          onChangeDays={handleChangeDays}
+          onChangeDays={permission === "write" ? handleChangeDays : undefined}
         />
       </main>
-
-      <ShareTripDialog
-        open={shareDialogOpen}
-        onClose={() => setShareDialogOpen(false)}
-        tripId={trip.id}
-      />
     </div>
   );
 }
