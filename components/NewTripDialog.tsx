@@ -33,7 +33,9 @@ function toDateTimeLocal(d: Date): string {
 
 const NewTripDialog = ({ open, onClose, onCreated }: NewTripDialogProps) => {
   const [destination, setDestination] = useState("");
-  const [accommodation, setAccommodation] = useState("");
+  // One row per accommodation. We always render at least one (possibly
+  // empty) input — the trip can still be created without any.
+  const [accommodations, setAccommodations] = useState<string[]>([""]);
   const [arrival, setArrival] = useState(defaultArrival);
   const [departure, setDeparture] = useState(defaultDeparture);
   const [notes, setNotes] = useState("");
@@ -41,6 +43,15 @@ const NewTripDialog = ({ open, onClose, onCreated }: NewTripDialogProps) => {
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const firstFieldRef = useRef<HTMLInputElement>(null);
+
+  const updateAccommodation = (idx: number, value: string) =>
+    setAccommodations((prev) => prev.map((a, i) => (i === idx ? value : a)));
+  const addAccommodation = () =>
+    setAccommodations((prev) => [...prev, ""]);
+  const removeAccommodation = (idx: number) =>
+    setAccommodations((prev) =>
+      prev.length <= 1 ? [""] : prev.filter((_, i) => i !== idx),
+    );
 
   useEffect(() => {
     if (open) {
@@ -82,12 +93,17 @@ const NewTripDialog = ({ open, onClose, onCreated }: NewTripDialogProps) => {
 
     setLoading(true);
     try {
+      const cleanedAccommodations = accommodations
+        .map((a) => a.trim())
+        .filter(Boolean);
       const res = await fetch("/api/generate-trip", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           destination: destination.trim(),
-          accommodation: accommodation.trim() || undefined,
+          accommodation: cleanedAccommodations[0],
+          accommodations:
+            cleanedAccommodations.length > 0 ? cleanedAccommodations : undefined,
           arrival,
           departure,
           notes: notes.trim() || undefined,
@@ -137,13 +153,13 @@ const NewTripDialog = ({ open, onClose, onCreated }: NewTripDialogProps) => {
         );
         setTimeout(() => {
           setDestination("");
-          setAccommodation("");
+          setAccommodations([""]);
           setNotes("");
           onClose();
         }, 1200);
       } else {
         setDestination("");
-        setAccommodation("");
+        setAccommodations([""]);
         setNotes("");
         onClose();
       }
@@ -209,22 +225,77 @@ const NewTripDialog = ({ open, onClose, onCreated }: NewTripDialogProps) => {
 
           <div>
             <label className="block text-[11px] font-medium uppercase tracking-wide text-white/50">
-              Alloggio{" "}
+              Alloggi{" "}
               <span className="text-white/30 normal-case tracking-normal">
                 (opzionale — hotel, airbnb, indirizzo…)
               </span>
             </label>
-            <input
-              type="text"
-              value={accommodation}
-              onChange={(e) => setAccommodation(e.target.value)}
-              placeholder="Es. Hotel Lisboa Plaza, Av. da Liberdade"
-              className="mt-1.5 w-full rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5 text-sm text-white placeholder-white/30 outline-none transition focus:border-emerald-400/40 focus:bg-white/[0.04]"
-              disabled={loading}
-            />
+            <div className="mt-1.5 space-y-2">
+              {accommodations.map((value, idx) => (
+                <div key={idx} className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={value}
+                    onChange={(e) => updateAccommodation(idx, e.target.value)}
+                    placeholder={
+                      idx === 0
+                        ? "Es. Hotel Lisboa Plaza, Av. da Liberdade"
+                        : "Es. Airbnb Alfama"
+                    }
+                    className="w-full rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5 text-sm text-white placeholder-white/30 outline-none transition focus:border-emerald-400/40 focus:bg-white/[0.04]"
+                    disabled={loading}
+                  />
+                  {accommodations.length > 1 ? (
+                    <button
+                      type="button"
+                      onClick={() => removeAccommodation(idx)}
+                      disabled={loading}
+                      aria-label="Rimuovi alloggio"
+                      className="rounded-lg border border-white/10 bg-white/[0.02] px-2.5 py-2.5 text-white/40 transition hover:border-red-400/30 hover:bg-red-500/10 hover:text-red-300 disabled:opacity-40"
+                    >
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M5 12h14" />
+                      </svg>
+                    </button>
+                  ) : null}
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={addAccommodation}
+                disabled={loading}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-white/10 bg-white/[0.02] px-3 py-1.5 text-xs font-medium text-white/50 transition hover:border-emerald-400/30 hover:bg-emerald-500/5 hover:text-emerald-200 disabled:opacity-40"
+              >
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M12 5v14" />
+                  <path d="M5 12h14" />
+                </svg>
+                Aggiungi alloggio
+              </button>
+            </div>
             <p className="mt-1.5 text-[11px] text-white/35">
-              Se compilato, ogni attività avrà il link a Google Maps con
-              indicazioni partendo da qui.
+              Aggiungine quanti vuoi. Potrai assegnarli ai singoli giorni
+              dopo aver generato il viaggio.
             </p>
           </div>
 

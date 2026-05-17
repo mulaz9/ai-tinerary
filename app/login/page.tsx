@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, Suspense } from "react";
+import { useEffect, useMemo, useState, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createSupabaseBrowserClient } from "../../lib/supabase/client";
@@ -8,16 +8,32 @@ import { loadUserTrips } from "../../lib/trips-store";
 
 const LEGACY_STORAGE_KEY = "ai-tinerary.user-trips.v1";
 
+type Tab = "signin" | "signup";
+type View = "form" | "forgot";
+
 function LoginInner() {
   const params = useSearchParams();
   const router = useRouter();
   const errorParam = params.get("error");
   const signedOut = params.get("signedOut") === "1";
   const next = params.get("next") ?? "/";
-  const [loading, setLoading] = useState(false);
+
+  const [tab, setTab] = useState<Tab>("signin");
+  const [view, setView] = useState<View>("form");
+
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [resetEmail, setResetEmail] = useState("");
+
+  const [oauthLoading, setOauthLoading] = useState(false);
+  const [emailLoading, setEmailLoading] = useState(false);
+
   const [error, setError] = useState<string | null>(
     errorParam ? "Accesso non riuscito, riprova." : null,
   );
+  const [info, setInfo] = useState<string | null>(null);
+
   const [localTripCount, setLocalTripCount] = useState<number | null>(null);
 
   useEffect(() => {
@@ -40,9 +56,38 @@ function LoginInner() {
     }
   }, []);
 
-  async function signInWithGoogle() {
-    setLoading(true);
+  const heading = useMemo(() => {
+    if (view === "forgot") return "Reimposta password";
+    if (signedOut) return "A presto";
+    return tab === "signin" ? "Bentornato" : "Crea il tuo account";
+  }, [view, signedOut, tab]);
+
+  const subheading = useMemo(() => {
+    if (view === "forgot") {
+      return "Inserisci l'email del tuo account: ti invieremo un link per scegliere una nuova password.";
+    }
+    if (signedOut) {
+      return "Sei uscito dal tuo account. Puoi rientrare o continuare come ospite.";
+    }
+    return tab === "signin"
+      ? "Accedi per sincronizzare i tuoi viaggi su tutti i dispositivi, oppure prosegui senza account."
+      : "Registrati per salvare i tuoi viaggi e ritrovarli ovunque.";
+  }, [view, signedOut, tab]);
+
+  function clearMessages() {
     setError(null);
+    setInfo(null);
+  }
+
+  function switchTab(nextTab: Tab) {
+    setTab(nextTab);
+    setView("form");
+    clearMessages();
+  }
+
+  async function signInWithGoogle() {
+    setOauthLoading(true);
+    clearMessages();
     try {
       const supabase = createSupabaseBrowserClient();
       if (!supabase) {
@@ -65,7 +110,113 @@ function LoginInner() {
           ? e.message
           : "Impossibile avviare l'accesso. Controlla la configurazione.";
       setError(msg);
-      setLoading(false);
+      setOauthLoading(false);
+    }
+  }
+
+  async function handleEmailSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    clearMessages();
+
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail || !password) {
+      setError("Inserisci email e password.");
+      return;
+    }
+    if (tab === "signup") {
+      if (password.length < 8) {
+        setError("La password deve avere almeno 8 caratteri.");
+        return;
+      }
+      if (password !== confirmPassword) {
+        setError("Le password non coincidono.");
+        return;
+      }
+    }
+
+    setEmailLoading(true);
+    try {
+      const supabase = createSupabaseBrowserClient();
+      if (!supabase) {
+        throw new Error(
+          "Supabase non configurato. Imposta NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local",
+        );
+      }
+
+      if (tab === "signin") {
+        const { error } = await supabase.auth.signInWithPassword({
+          email: trimmedEmail,
+          password,
+        });
+        if (error) throw error;
+        router.push(next.startsWith("/") ? next : "/");
+        router.refresh();
+        return;
+      }
+
+      const emailRedirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(
+        next,
+      )}`;
+      const { data, error } = await supabase.auth.signUp({
+        email: trimmedEmail,
+        password,
+        options: { emailRedirectTo },
+      });
+      if (error) throw error;
+
+      // If email confirmations are enabled in Supabase (default), no session
+      // is returned and the user must click the link in the email. If they
+      // are disabled, the user is signed in immediately.
+      if (data.session) {
+        router.push(next.startsWith("/") ? next : "/");
+        router.refresh();
+        return;
+      }
+      setInfo(
+        `Ti abbiamo inviato un'email di conferma a ${trimmedEmail}. Clicca sul link per attivare l'account.`,
+      );
+      setPassword("");
+      setConfirmPassword("");
+    } catch (err) {
+      console.error(err);
+      setError(translateAuthError(err));
+    } finally {
+      setEmailLoading(false);
+    }
+  }
+
+  async function handleForgotSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    clearMessages();
+
+    const trimmed = resetEmail.trim();
+    if (!trimmed) {
+      setError("Inserisci la tua email.");
+      return;
+    }
+    setEmailLoading(true);
+    try {
+      const supabase = createSupabaseBrowserClient();
+      if (!supabase) {
+        throw new Error(
+          "Supabase non configurato. Imposta NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local",
+        );
+      }
+      const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(
+        "/auth/update-password",
+      )}`;
+      const { error } = await supabase.auth.resetPasswordForEmail(trimmed, {
+        redirectTo,
+      });
+      if (error) throw error;
+      setInfo(
+        `Se ${trimmed} è registrato, riceverai a breve un'email con il link per reimpostare la password.`,
+      );
+    } catch (err) {
+      console.error(err);
+      setError(translateAuthError(err));
+    } finally {
+      setEmailLoading(false);
     }
   }
 
@@ -80,29 +231,208 @@ function LoginInner() {
           AI-tinerary
         </p>
         <h1 className="mt-2 text-2xl font-bold leading-tight tracking-tight text-white">
-          {signedOut ? "A presto" : "Bentornato"}
+          {heading}
         </h1>
         <p className="mt-2 text-sm leading-relaxed text-white/50">
-          {signedOut
-            ? "Sei uscito dal tuo account. Puoi rientrare o continuare come ospite."
-            : "Accedi per sincronizzare i tuoi viaggi su tutti i dispositivi, oppure prosegui senza account."}
+          {subheading}
         </p>
 
-        <button
-          type="button"
-          onClick={signInWithGoogle}
-          disabled={loading}
-          className="mt-7 inline-flex w-full items-center justify-center gap-3 rounded-full bg-white px-4 py-3 text-sm font-semibold text-neutral-900 transition hover:bg-white/90 disabled:opacity-60"
-        >
-          <GoogleIcon />
-          {loading ? "Reindirizzamento…" : "Continua con Google"}
-        </button>
+        {view === "form" ? (
+          <>
+            <div
+              role="tablist"
+              aria-label="Accedi o registrati"
+              className="mt-6 grid grid-cols-2 gap-1 rounded-full border border-white/10 bg-white/5 p-1 text-xs font-semibold"
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={tab === "signin"}
+                onClick={() => switchTab("signin")}
+                className={`rounded-full px-3 py-2 transition ${
+                  tab === "signin"
+                    ? "bg-white text-neutral-900"
+                    : "text-white/60 hover:text-white"
+                }`}
+              >
+                Accedi
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={tab === "signup"}
+                onClick={() => switchTab("signup")}
+                className={`rounded-full px-3 py-2 transition ${
+                  tab === "signup"
+                    ? "bg-white text-neutral-900"
+                    : "text-white/60 hover:text-white"
+                }`}
+              >
+                Registrati
+              </button>
+            </div>
+
+            <form onSubmit={handleEmailSubmit} className="mt-5 space-y-3">
+              <div>
+                <label
+                  htmlFor="email"
+                  className="mb-1.5 block text-[11px] font-semibold uppercase tracking-widest text-white/40"
+                >
+                  Email
+                </label>
+                <input
+                  id="email"
+                  type="email"
+                  autoComplete="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white placeholder:text-white/30 focus:border-emerald-400/50 focus:outline-none focus:ring-2 focus:ring-emerald-400/30"
+                  placeholder="tua@email.com"
+                />
+              </div>
+              <div>
+                <label
+                  htmlFor="password"
+                  className="mb-1.5 block text-[11px] font-semibold uppercase tracking-widest text-white/40"
+                >
+                  Password
+                </label>
+                <input
+                  id="password"
+                  type="password"
+                  autoComplete={
+                    tab === "signin" ? "current-password" : "new-password"
+                  }
+                  required
+                  minLength={tab === "signup" ? 8 : undefined}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white placeholder:text-white/30 focus:border-emerald-400/50 focus:outline-none focus:ring-2 focus:ring-emerald-400/30"
+                  placeholder={
+                    tab === "signup" ? "Almeno 8 caratteri" : "La tua password"
+                  }
+                />
+              </div>
+              {tab === "signup" ? (
+                <div>
+                  <label
+                    htmlFor="confirm-password"
+                    className="mb-1.5 block text-[11px] font-semibold uppercase tracking-widest text-white/40"
+                  >
+                    Conferma password
+                  </label>
+                  <input
+                    id="confirm-password"
+                    type="password"
+                    autoComplete="new-password"
+                    required
+                    minLength={8}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white placeholder:text-white/30 focus:border-emerald-400/50 focus:outline-none focus:ring-2 focus:ring-emerald-400/30"
+                    placeholder="Ripeti la password"
+                  />
+                </div>
+              ) : null}
+
+              {tab === "signin" ? (
+                <div className="text-right">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setView("forgot");
+                      setResetEmail(email);
+                      clearMessages();
+                    }}
+                    className="text-xs text-white/50 underline-offset-2 hover:text-white/80 hover:underline"
+                  >
+                    Password dimenticata?
+                  </button>
+                </div>
+              ) : null}
+
+              <button
+                type="submit"
+                disabled={emailLoading}
+                className="mt-1 inline-flex w-full items-center justify-center gap-2 rounded-full bg-emerald-400 px-4 py-3 text-sm font-semibold text-neutral-900 transition hover:bg-emerald-300 disabled:opacity-60"
+              >
+                {emailLoading
+                  ? "Attendere…"
+                  : tab === "signin"
+                    ? "Accedi"
+                    : "Crea account"}
+              </button>
+            </form>
+
+            <div className="my-5 flex items-center gap-3 text-[10px] font-semibold uppercase tracking-widest text-white/30">
+              <span className="h-px flex-1 bg-white/10" aria-hidden="true" />
+              oppure
+              <span className="h-px flex-1 bg-white/10" aria-hidden="true" />
+            </div>
+
+            <button
+              type="button"
+              onClick={signInWithGoogle}
+              disabled={oauthLoading}
+              className="inline-flex w-full items-center justify-center gap-3 rounded-full bg-white px-4 py-3 text-sm font-semibold text-neutral-900 transition hover:bg-white/90 disabled:opacity-60"
+            >
+              <GoogleIcon />
+              {oauthLoading ? "Reindirizzamento…" : "Continua con Google"}
+            </button>
+          </>
+        ) : (
+          <form onSubmit={handleForgotSubmit} className="mt-6 space-y-3">
+            <div>
+              <label
+                htmlFor="reset-email"
+                className="mb-1.5 block text-[11px] font-semibold uppercase tracking-widest text-white/40"
+              >
+                Email
+              </label>
+              <input
+                id="reset-email"
+                type="email"
+                autoComplete="email"
+                required
+                value={resetEmail}
+                onChange={(e) => setResetEmail(e.target.value)}
+                className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white placeholder:text-white/30 focus:border-emerald-400/50 focus:outline-none focus:ring-2 focus:ring-emerald-400/30"
+                placeholder="tua@email.com"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={emailLoading}
+              className="mt-1 inline-flex w-full items-center justify-center gap-2 rounded-full bg-emerald-400 px-4 py-3 text-sm font-semibold text-neutral-900 transition hover:bg-emerald-300 disabled:opacity-60"
+            >
+              {emailLoading ? "Invio…" : "Invia link di reset"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setView("form");
+                clearMessages();
+              }}
+              className="inline-flex w-full items-center justify-center text-xs text-white/50 hover:text-white/80"
+            >
+              ← Torna al login
+            </button>
+          </form>
+        )}
 
         {error ? (
-          <p className="mt-3 text-center text-xs text-red-400/90">{error}</p>
+          <p className="mt-4 rounded-2xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-center text-xs text-red-300">
+            {error}
+          </p>
+        ) : null}
+        {info ? (
+          <p className="mt-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-center text-xs text-emerald-200">
+            {info}
+          </p>
         ) : null}
 
-        <div className="my-6 flex items-center gap-3 text-[10px] font-semibold uppercase tracking-widest text-white/30">
+        <div className="my-5 flex items-center gap-3 text-[10px] font-semibold uppercase tracking-widest text-white/30">
           <span className="h-px flex-1 bg-white/10" aria-hidden="true" />
           oppure
           <span className="h-px flex-1 bg-white/10" aria-hidden="true" />
@@ -123,13 +453,14 @@ function LoginInner() {
         </button>
 
         <p className="mt-3 text-center text-[11px] leading-relaxed text-white/40">
-          I viaggi verranno salvati solo su <strong className="font-semibold text-white/60">questo dispositivo</strong>.
+          I viaggi verranno salvati solo su{" "}
+          <strong className="font-semibold text-white/60">questo dispositivo</strong>.
           {localTripCount && localTripCount > 0
             ? ` Hai già ${localTripCount} ${
                 localTripCount === 1 ? "viaggio salvato" : "viaggi salvati"
               } qui.`
-            : ""}
-          {" "}Puoi accedere più tardi per sincronizzarli.
+            : ""}{" "}
+          Puoi accedere più tardi per sincronizzarli.
         </p>
 
         <p className="mt-6 border-t border-white/5 pt-5 text-center text-[11px] text-white/30">
@@ -145,6 +476,28 @@ function LoginInner() {
       </div>
     </div>
   );
+}
+
+function translateAuthError(err: unknown): string {
+  if (!(err instanceof Error)) return "Si è verificato un errore. Riprova.";
+  const msg = err.message.toLowerCase();
+  if (msg.startsWith("supabase non configurato")) return err.message;
+  if (msg.includes("invalid login credentials")) {
+    return "Email o password non validi.";
+  }
+  if (msg.includes("email not confirmed")) {
+    return "Email non confermata. Controlla la tua casella di posta.";
+  }
+  if (msg.includes("user already registered")) {
+    return "Questa email è già registrata. Prova ad accedere.";
+  }
+  if (msg.includes("rate limit") || msg.includes("too many requests")) {
+    return "Troppi tentativi. Riprova tra qualche minuto.";
+  }
+  if (msg.includes("password should be at least")) {
+    return "La password è troppo corta.";
+  }
+  return err.message;
 }
 
 function GoogleIcon() {

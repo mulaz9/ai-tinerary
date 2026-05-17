@@ -7,6 +7,7 @@ import { Trip } from "../types";
 import SafeImage from "./SafeImage";
 import { useAllTrips } from "../lib/trips-store";
 import UserMenu from "./UserMenu";
+import { getCountryFromLocation } from "../lib/country-flag";
 
 const Sidebar = () => {
   const [selectedTrip, setSelectedTrip] = useState<Trip | null>(null);
@@ -45,6 +46,7 @@ const Sidebar = () => {
         <ul className="mt-2 space-y-1">
           {trips.map((trip) => {
             const active = pathname?.startsWith(`/trip/${trip.id}`);
+            const country = getCountryFromLocation(trip.location);
             return (
               <li key={trip.id}>
                 <Link
@@ -57,16 +59,27 @@ const Sidebar = () => {
                   }`}
                 >
                   <div className="flex items-center gap-2.5">
-                    {trip.coverImageUrl ? (
-                      <SafeImage
-                        src={trip.coverImageUrl}
-                        alt={trip.name}
-                        className="h-9 w-9 shrink-0 rounded-lg object-cover ring-1 ring-white/10"
-                        fallbackLabel={trip.name}
-                      />
-                    ) : (
-                      <div className="h-9 w-9 shrink-0 rounded-lg bg-white/5 ring-1 ring-white/10" />
-                    )}
+                    <div className="relative h-9 w-9 shrink-0">
+                      {trip.coverImageUrl ? (
+                        <SafeImage
+                          src={trip.coverImageUrl}
+                          alt={trip.name}
+                          className="h-9 w-9 rounded-lg object-cover ring-1 ring-white/10"
+                          fallbackLabel={trip.name}
+                        />
+                      ) : (
+                        <div className="h-9 w-9 rounded-lg bg-white/5 ring-1 ring-white/10" />
+                      )}
+                      {country ? (
+                        <span
+                          className="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-[#141414] text-[10px] leading-none ring-1 ring-white/20"
+                          aria-label={`Bandiera ${country.code}`}
+                          title={country.code}
+                        >
+                          {country.flag}
+                        </span>
+                      ) : null}
+                    </div>
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold">{trip.name}</p>
                       <p className="truncate text-xs text-white/50">

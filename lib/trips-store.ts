@@ -6,6 +6,7 @@ import {
   createSupabaseBrowserClient,
   isSupabaseConfigured,
 } from "./supabase/client";
+import { migrateTripAccommodations } from "./trip-accommodations";
 
 /**
  * Store for user trips with opt-in Supabase sync.
@@ -66,7 +67,9 @@ function readLocal(): Trip[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.map((t: Trip) => ({ ...t, isUserCreated: true }));
+    return parsed.map((t: Trip) =>
+      migrateTripAccommodations({ ...t, isUserCreated: true }),
+    );
   } catch {
     return [];
   }
@@ -239,8 +242,12 @@ export function useAllTrips(): {
           logSupabaseError("fetch failed", error);
           return;
         }
-        const rows = (data ?? []).map(
-          (row) => ({ ...(row.data as Trip), id: row.id, isUserCreated: true }),
+        const rows = (data ?? []).map((row) =>
+          migrateTripAccommodations({
+            ...(row.data as Trip),
+            id: row.id,
+            isUserCreated: true,
+          }),
         );
         setCache(rows);
       } catch (err) {

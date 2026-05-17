@@ -1,4 +1,3 @@
-import type { CSSProperties, HTMLAttributes } from "react";
 import { Activity } from "../types";
 import LocationCard from "./LocationCard";
 
@@ -7,9 +6,8 @@ interface ActivityCardProps {
   checked?: boolean;
   onToggle?: (next: boolean) => void;
   onRemove?: () => void;
-  dragHandleProps?: HTMLAttributes<HTMLButtonElement>;
-  isDragging?: boolean;
-  style?: CSSProperties;
+  /** Opens an editor for this activity's start time. */
+  onEditTime?: () => void;
 }
 
 const ActivityCard = ({
@@ -17,9 +15,7 @@ const ActivityCard = ({
   checked,
   onToggle,
   onRemove,
-  dragHandleProps,
-  isDragging,
-  style,
+  onEditTime,
 }: ActivityCardProps) => {
   return (
     <LocationCard
@@ -33,9 +29,7 @@ const ActivityCard = ({
       checked={checked}
       onToggle={onToggle}
       onRemove={onRemove}
-      dragHandleProps={dragHandleProps}
-      isDragging={isDragging}
-      style={style}
+      onEditTime={onEditTime}
       meta={
         <>
           {typeof activity.durationMins === "number" ? (

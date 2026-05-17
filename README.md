@@ -71,12 +71,54 @@ transparently switches to Groq on any of: `rate_limit`, `auth`,
 used, the dialog briefly confirms which provider ultimately produced the
 itinerary.
 
-### Storage
+## Authentication
+
+Auth is **opt-in** via Supabase. Without it the app still works, just
+storing trips locally. With it, signed-in users get cross-device sync.
+
+Currently supported providers:
+
+- **Email + password** (with email confirmation and password reset)
+- **Google OAuth**
+
+### Supabase setup
+
+1. Create a project at [supabase.com](https://supabase.com), then add the
+   following to `.env.local`:
+
+   ```bash
+   NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
+   ```
+
+2. In the Supabase dashboard go to **Authentication → URL Configuration**
+   and add `http://localhost:3000` (and your production URL) to:
+
+   - **Site URL**
+   - **Redirect URLs** (also add `http://localhost:3000/auth/callback`)
+
+3. Enable the providers you want under **Authentication → Providers**:
+
+   - **Email**: enable. Keep "Confirm email" on (recommended). The
+     confirmation and reset-password emails are sent automatically.
+   - **Google**: enable and paste your Google OAuth client ID + secret.
+     Add `https://<project>.supabase.co/auth/v1/callback` to the allowed
+     redirect URIs in Google Cloud Console.
+
+4. Run the SQL in `supabase/schema.sql` from the SQL Editor to create the
+   `trips` table and row-level-security policies.
+
+The login page lives at `/login` with tabs to switch between sign-in and
+sign-up. Password reset uses `/auth/update-password` once the user clicks
+the link in the email.
+
+## Storage
 
 Trips are stored in the browser's `localStorage`
 (key: `ai-tinerary.user-trips.v1`), so they only appear on the device that
 generated them. There are no hardcoded trips — the app starts empty and
-every itinerary comes from the AI generator.
+every itinerary comes from the AI generator. When the user is signed in,
+trips are also synced to Supabase via the `trips` table.
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 

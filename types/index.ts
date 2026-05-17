@@ -9,12 +9,28 @@ export interface Trip {
   /** @deprecated - prefer coverImageUrl (keeping for backward compatibility) */
   coverEmoji?: string;
   location: string;
-  /** Optional free-form place the traveller is staying at (hotel, airbnb,
-   *  friend's place…). When set, the UI uses it as the origin for every
-   *  directions link so you can see "from the hotel to X" with one tap. */
+  /**
+   * @deprecated retained for backwards compatibility with trips persisted
+   * before the multi-accommodation refactor. New consumers should read
+   * `accommodations` instead. This field, when set, mirrors the name of
+   * the first item in `accommodations` so existing UI keeps working.
+   */
   accommodation?: string;
+  /**
+   * Places the traveller is staying at across the trip (hotel, airbnb,
+   * friend's place…). When set, each `Day.accommodationId` references one
+   * of these to drive the directions origin per day.
+   */
+  accommodations?: Accommodation[];
   days: Day[];
   isUserCreated?: boolean;
+}
+
+export interface Accommodation {
+  /** Stable id within a trip (e.g. `acc-1`). */
+  id: string;
+  /** Free-form name/address of the accommodation. */
+  name: string;
 }
 
 export interface Day {
@@ -24,6 +40,11 @@ export interface Day {
   title: string;
   summary: string;
   activities: Activity[];
+  /**
+   * Optional id of a `Trip.accommodations` entry that covers this day.
+   * Falls back to the first accommodation when missing.
+   */
+  accommodationId?: string;
 }
 
 export interface Activity {

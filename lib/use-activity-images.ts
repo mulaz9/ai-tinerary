@@ -68,15 +68,17 @@ export function useActivityImages(
     let cancelled = false;
     let cursor = 0;
 
+    const tripLocation = trip.location;
+
     const runOne = async (): Promise<void> => {
       while (!cancelled) {
         const idx = cursor++;
         if (idx >= queue.length) return;
         const { id, query } = queue[idx];
         try {
-          const res = await fetch(
-            `/api/image?q=${encodeURIComponent(query)}`,
-          );
+          const params = new URLSearchParams({ q: query });
+          if (tripLocation) params.set("cityFallback", tripLocation);
+          const res = await fetch(`/api/image?${params.toString()}`);
           if (!res.ok) {
             cache.set(query, null);
             continue;

@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import Sidebar from "../../../../components/Sidebar";
 import DayTimeline from "../../../../components/DayTimeline";
 import SafeImage from "../../../../components/SafeImage";
+import ManageAccommodationsDialog from "../../../../components/ManageAccommodationsDialog";
+import TripMap from "../../../../components/TripMap";
 import {
   fetchSharedTrip,
   resolveShareToken,
@@ -16,22 +18,30 @@ import { createSupabaseBrowserClient } from "../../../../lib/supabase/client";
 import type { WeatherInfo } from "../../../../lib/weather";
 import { useActivityImages } from "../../../../lib/use-activity-images";
 import { buildMapsSearchUrl, buildMapsUrl } from "../../../../lib/maps";
+import {
+  migrateTripAccommodations,
+  originForDay,
+} from "../../../../lib/trip-accommodations";
+import { getCountryFromLocation } from "../../../../lib/country-flag";
 import type { Day, SharePermission, Trip } from "../../../../types";
 
 function applyMapsOrigin(trip: Trip): Trip {
-  const origin = trip.accommodation?.trim();
-  const destination = trip.location;
-  const nextDays: Day[] = trip.days.map((day) => ({
-    ...day,
-    activities: day.activities.map((a) => ({
-      ...a,
-      mapsUrl: buildMapsUrl(a.location || trip.location, {
-        destination,
-        origin,
-      }),
-    })),
-  }));
-  return { ...trip, days: nextDays };
+  const migrated = migrateTripAccommodations(trip);
+  const destination = migrated.location;
+  const nextDays: Day[] = migrated.days.map((day) => {
+    const origin = originForDay(migrated, day);
+    return {
+      ...day,
+      activities: day.activities.map((a) => ({
+        ...a,
+        mapsUrl: buildMapsUrl(a.location || migrated.location, {
+          destination,
+          origin,
+        }),
+      })),
+    };
+  });
+  return { ...migrated, days: nextDays };
 }
 
 export default function SharedTripPage({
@@ -46,6 +56,8 @@ export default function SharedTripPage({
   const [permission, setPermission] = useState<SharePermission>("read");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [manageAccommodationsOpen, setManageAccommodationsOpen] =
+    useState(false);
 
   const [weatherByDate, setWeatherByDate] = useState<
     Record<string, WeatherInfo>
@@ -175,6 +187,7 @@ export default function SharedTripPage({
     (acc, d) => acc + d.activities.length,
     0,
   );
+  const country = getCountryFromLocation(trip.location);
 
   return (
     <div className="min-h-screen bg-[#121212] text-white">
@@ -199,8 +212,17 @@ export default function SharedTripPage({
           <div className="absolute inset-x-0 bottom-0 px-5 pb-5 sm:px-6 sm:pb-6">
             <div className="flex flex-wrap items-end justify-between gap-4">
               <div>
-                <h1 className="text-2xl font-bold tracking-tight text-white drop-shadow-lg sm:text-3xl">
-                  {trip.name}
+                <h1 className="flex flex-wrap items-center gap-2 text-2xl font-bold tracking-tight text-white drop-shadow-lg sm:text-3xl">
+                  {country ? (
+                    <span
+                      className="text-3xl leading-none drop-shadow sm:text-4xl"
+                      aria-label={`Bandiera ${country.code}`}
+                      title={country.code}
+                    >
+                      {country.flag}
+                    </span>
+                  ) : null}
+                  <span>{trip.name}</span>
                 </h1>
                 {trip.subtitle ? (
                   <p className="mt-1 text-sm text-white/70 drop-shadow">
@@ -208,12 +230,6 @@ export default function SharedTripPage({
                   </p>
                 ) : null}
               </div>
-              <Link
-                href="/"
-                className="hidden rounded-xl border border-white/15 bg-white/10 px-3 py-2 text-sm font-semibold text-white backdrop-blur transition hover:bg-white/20 sm:inline-flex"
-              >
-                ← Home
-              </Link>
             </div>
           </div>
         </div>
@@ -235,17 +251,48 @@ export default function SharedTripPage({
             <span className="inline-flex items-center gap-1 rounded-full border border-white/[0.06] bg-white/[0.03] px-3 py-1.5">
               {trip.days.length} giorni · {totalActivities} attività
             </span>
-            {trip.accommodation ? (
+            {(trip.accommodations ?? []).map((acc) => (
               <a
-                href={buildMapsSearchUrl(trip.accommodation, trip.location)}
+                key={acc.id}
+                href={buildMapsSearchUrl(acc.name, trip.location)}
                 target="_blank"
                 rel="noreferrer"
                 className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/20 bg-emerald-500/10 px-3 py-1.5 text-emerald-200 transition hover:bg-emerald-500/20"
                 title="Apri su Google Maps"
               >
                 <span aria-hidden>🏨</span>
-                {trip.accommodation}
+                {acc.name}
               </a>
+            ))}
+            {permission === "write" ? (
+              <button
+                type="button"
+                onClick={() => setManageAccommodationsOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-white/15 bg-white/[0.02] px-3 py-1.5 text-white/60 transition hover:border-emerald-400/30 hover:bg-emerald-500/5 hover:text-emerald-200"
+                title={
+                  trip.accommodations?.length
+                    ? "Gestisci alloggi"
+                    : "Aggiungi alloggio"
+                }
+              >
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M12 5v14" />
+                  <path d="M5 12h14" />
+                </svg>
+                {trip.accommodations?.length
+                  ? "Gestisci alloggi"
+                  : "Aggiungi alloggio"}
+              </button>
             ) : null}
             <span className="inline-flex items-center gap-1 rounded-full border border-blue-400/20 bg-blue-500/10 px-3 py-1.5 text-blue-300">
               Condiviso ·{" "}
@@ -254,14 +301,27 @@ export default function SharedTripPage({
           </div>
         </div>
 
+        {/* Map */}
+        <TripMap trip={trip} />
+
         {/* Timeline */}
         <DayTimeline
           days={trip.days}
           weatherByDate={weatherByDate}
           imagesByActivityId={imagesByActivityId}
+          destination={trip.location}
+          accommodations={trip.accommodations ?? []}
           onChangeDays={permission === "write" ? handleChangeDays : undefined}
         />
       </main>
+
+      {permission === "write" && manageAccommodationsOpen ? (
+        <ManageAccommodationsDialog
+          onClose={() => setManageAccommodationsOpen(false)}
+          trip={trip}
+          onSave={(next) => commit(next)}
+        />
+      ) : null}
     </div>
   );
 }

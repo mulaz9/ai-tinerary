@@ -6,6 +6,10 @@ export const runtime = "nodejs";
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const q = searchParams.get("q")?.trim();
+  const cityFallback =
+    searchParams.get("cityFallback")?.trim() ||
+    searchParams.get("city")?.trim() ||
+    undefined;
 
   if (!q) {
     return NextResponse.json(
@@ -14,7 +18,7 @@ export async function GET(req: Request) {
     );
   }
 
-  const url = await lookupImage(q);
+  const url = await lookupImage(q, { cityFallback });
   return NextResponse.json(
     { url: url ?? null },
     {

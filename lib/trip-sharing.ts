@@ -2,6 +2,7 @@
 
 import type { SharePermission, Trip, TripShare } from "../types";
 import { createSupabaseBrowserClient } from "./supabase/client";
+import { migrateTripAccommodations } from "./trip-accommodations";
 
 export async function createShareLink(
   tripId: string,
@@ -93,7 +94,7 @@ export async function fetchSharedTrip(tripId: string): Promise<Trip | null> {
     .single();
 
   if (error || !data) return null;
-  return { ...(data.data as Trip), id: data.id };
+  return migrateTripAccommodations({ ...(data.data as Trip), id: data.id });
 }
 
 export async function updateSharedTrip(trip: Trip): Promise<boolean> {
@@ -190,9 +191,9 @@ export async function fetchTripsSharedWithMe(): Promise<
   for (const v of visited) {
     const tripData = tripMap.get(v.tripId);
     if (tripData) {
+      const migrated = migrateTripAccommodations({ ...tripData, id: v.tripId });
       results.push({
-        ...tripData,
-        id: v.tripId,
+        ...migrated,
         _shareToken: v.token,
         _sharePermission: v.permission,
       });

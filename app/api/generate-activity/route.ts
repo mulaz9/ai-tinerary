@@ -1,48 +1,49 @@
 import { NextResponse } from "next/server";
 import {
-  generateTrip,
-  GenerateTripInput,
+  generateActivity,
+  GenerateActivityInput,
   AIError,
 } from "../../../lib/ai";
 
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
-  let body: Partial<GenerateTripInput>;
+  let body: Partial<GenerateActivityInput>;
   try {
-    body = (await req.json()) as Partial<GenerateTripInput>;
+    body = (await req.json()) as Partial<GenerateActivityInput>;
   } catch {
     return NextResponse.json({ error: "Body JSON non valido." }, { status: 400 });
   }
 
   const destination = body.destination?.trim();
-  const arrival = body.arrival?.trim();
-  const departure = body.departure?.trim();
-  const notes = body.notes?.trim() || undefined;
+  const placeOfInterest = body.placeOfInterest?.trim();
   const accommodation = body.accommodation?.trim() || undefined;
-  const accommodations = Array.isArray(body.accommodations)
-    ? body.accommodations
-        .map((a) => (typeof a === "string" ? a.trim() : ""))
-        .filter((a): a is string => a.length > 0)
-    : undefined;
+  const dayDate = body.dayDate?.trim() || undefined;
+  const startTime = body.startTime?.trim() || undefined;
+  const notes = body.notes?.trim() || undefined;
+  const durationMins =
+    typeof body.durationMins === "number" && body.durationMins > 0
+      ? Math.round(body.durationMins)
+      : undefined;
 
-  if (!destination || !arrival || !departure) {
+  if (!destination || !placeOfInterest) {
     return NextResponse.json(
-      { error: "Campi obbligatori: destination, arrival, departure." },
+      { error: "Campi obbligatori: destination, placeOfInterest." },
       { status: 400 },
     );
   }
 
   try {
-    const { trip, provider, fellBack } = await generateTrip({
+    const { activity, provider } = await generateActivity({
       destination,
-      arrival,
-      departure,
-      notes,
+      placeOfInterest,
       accommodation,
-      accommodations,
+      dayDate,
+      startTime,
+      durationMins,
+      notes,
     });
-    return NextResponse.json({ trip, provider, fellBack });
+    return NextResponse.json({ activity, provider });
   } catch (err) {
     if (err instanceof AIError) {
       const status =
