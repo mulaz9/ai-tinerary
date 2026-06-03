@@ -1,6 +1,8 @@
 import SafeImage from "./SafeImage";
 import MapEmbed from "./MapEmbed";
+import PlaceRatingBadge from "./PlaceRatingBadge";
 import TransportInfo from "./TransportInfo";
+import type { GooglePlaceRating } from "../types";
 
 interface LocationCardProps {
   title: string;
@@ -9,6 +11,8 @@ interface LocationCardProps {
   location: string;
   photoUrl?: string;
   mapsUrl?: string;
+  /** Opens this place on the embedded trip map. */
+  onShowOnMap?: () => void;
   transport?: Parameters<typeof TransportInfo>[0]["transport"];
   meta?: React.ReactNode;
   checked?: boolean;
@@ -19,6 +23,7 @@ interface LocationCardProps {
    *  time badge becomes a clickable button and a small clock action appears
    *  in the top-right corner. */
   onEditTime?: () => void;
+  placeRating?: GooglePlaceRating;
 }
 
 export default function LocationCard({
@@ -28,12 +33,14 @@ export default function LocationCard({
   location,
   photoUrl,
   mapsUrl,
+  onShowOnMap,
   transport,
   meta,
   checked,
   onToggle,
   onRemove,
   onEditTime,
+  placeRating,
 }: LocationCardProps) {
   return (
     <div
@@ -239,7 +246,8 @@ export default function LocationCard({
                     {location}
                   </span>
                   {meta}
-                  <MapEmbed mapsUrl={mapsUrl} />
+                  <PlaceRatingBadge rating={placeRating} />
+                  <MapEmbed mapsUrl={mapsUrl} onShowOnMap={onShowOnMap} />
                 </div>
 
                 <TransportInfo transport={transport} />

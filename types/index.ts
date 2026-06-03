@@ -26,11 +26,28 @@ export interface Trip {
   isUserCreated?: boolean;
 }
 
+/** Resolved map coordinates for a place name (synced in trip JSON when logged in). */
+export interface PlaceGeo {
+  lat: number;
+  lon: number;
+  /** Normalized geocode query — stale when location or trip destination changes. */
+  queryKey: string;
+}
+
+/** Google Maps / Places rating for a venue. */
+export interface GooglePlaceRating {
+  rating: number;
+  reviewCount: number;
+  /** Normalized search query — stale when location changes. */
+  queryKey: string;
+}
+
 export interface Accommodation {
   /** Stable id within a trip (e.g. `acc-1`). */
   id: string;
   /** Free-form name/address of the accommodation. */
   name: string;
+  geo?: PlaceGeo;
 }
 
 export interface Day {
@@ -58,6 +75,8 @@ export interface Activity {
   photoUrl?: string;
   mapsUrl?: string;
   transport?: TransportInfo;
+  geo?: PlaceGeo;
+  placeRating?: GooglePlaceRating;
 }
 
 export interface TransportInfo {

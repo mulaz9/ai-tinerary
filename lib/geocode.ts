@@ -5,15 +5,9 @@ import { buildMapsQuery } from "./maps";
 /**
  * Client-side geocoding helper.
  *
- * Resolves free-form location strings (the same ones we already feed to
- * Google Maps for directions) into lat/lon coordinates, using our
- * `/api/geocode` proxy in front of OpenStreetMap Nominatim.
- *
- * Two layers of cache:
- *   1. `localStorage` so the same place is never geocoded twice across
- *      sessions on a given device.
- *   2. An in-memory promise map so concurrent React renders share a single
- *      in-flight request.
+ * Resolves location strings into lat/lon via `/api/geocode` (Google
+ * Geocoding when configured, else Nominatim). Cache: localStorage +
+ * in-flight deduplication. Batch requests use POST for one round-trip.
  */
 
 export interface LatLon {
@@ -21,26 +15,57 @@ export interface LatLon {
   lon: number;
 }
 
-const STORAGE_KEY = "ai-tinerary.geocode-cache.v1";
+/** Only successful geocodes are cached (never `null`). */
+const STORAGE_KEY = "ai-tinerary.geocode-cache.v2";
+const LEGACY_STORAGE_KEYS = ["ai-tinerary.geocode-cache.v1"];
 
-type CacheEntry = LatLon | null;
-
-let memoryCache: Map<string, CacheEntry> | null = null;
-const inflight = new Map<string, Promise<CacheEntry>>();
+let memoryCache: Map<string, LatLon> | null = null;
+const inflight = new Map<string, Promise<LatLon | null>>();
 
 function normalize(query: string): string {
   return query.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
-function loadCache(): Map<string, CacheEntry> {
+function isValidGeoEntry(value: unknown): value is LatLon {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    typeof (value as LatLon).lat === "number" &&
+    typeof (value as LatLon).lon === "number" &&
+    Number.isFinite((value as LatLon).lat) &&
+    Number.isFinite((value as LatLon).lon)
+  );
+}
+
+function ingestParsedEntries(parsed: Record<string, unknown>) {
+  const cache = loadCache();
+  for (const [k, v] of Object.entries(parsed)) {
+    if (isValidGeoEntry(v)) cache.set(k, v);
+  }
+}
+
+function loadCache(): Map<string, LatLon> {
   if (memoryCache) return memoryCache;
   memoryCache = new Map();
   if (typeof window === "undefined") return memoryCache;
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return memoryCache;
-    const parsed: Record<string, CacheEntry> = JSON.parse(raw);
-    for (const [k, v] of Object.entries(parsed)) memoryCache.set(k, v);
+    if (raw) {
+      ingestParsedEntries(JSON.parse(raw) as Record<string, unknown>);
+      return memoryCache;
+    }
+    for (const legacyKey of LEGACY_STORAGE_KEYS) {
+      const legacyRaw = window.localStorage.getItem(legacyKey);
+      if (!legacyRaw) continue;
+      ingestParsedEntries(JSON.parse(legacyRaw) as Record<string, unknown>);
+      persistCache();
+      try {
+        window.localStorage.removeItem(legacyKey);
+      } catch {
+        // ignore
+      }
+      break;
+    }
   } catch {
     // Corrupted cache — ignore and start fresh.
   }
@@ -50,12 +75,23 @@ function loadCache(): Map<string, CacheEntry> {
 function persistCache() {
   if (typeof window === "undefined" || !memoryCache) return;
   try {
-    const obj: Record<string, CacheEntry> = {};
+    const obj: Record<string, LatLon> = {};
     for (const [k, v] of memoryCache.entries()) obj[k] = v;
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(obj));
   } catch {
     // Quota / privacy mode — best effort only.
   }
+}
+
+function getCached(key: string): LatLon | undefined {
+  return loadCache().get(key);
+}
+
+function setCached(key: string, value: LatLon | null) {
+  const cache = loadCache();
+  if (value) cache.set(key, value);
+  else cache.delete(key);
+  persistCache();
 }
 
 /**
@@ -70,21 +106,22 @@ export async function geocode(
   const key = normalize(query);
   if (!key) return null;
 
-  const cache = loadCache();
-  if (cache.has(key)) return cache.get(key) ?? null;
+  const hit = getCached(key);
+  if (hit) return hit;
 
   const existing = inflight.get(key);
   if (existing) return existing;
 
-  const promise = (async (): Promise<CacheEntry> => {
+  const promise = (async (): Promise<LatLon | null> => {
     try {
       const res = await fetch(
         `/api/geocode?q=${encodeURIComponent(query)}`,
         { cache: "force-cache" },
       );
       if (!res.ok) return null;
-      const data: { result: { lat: number; lon: number } | null } =
-        await res.json();
+      const data: {
+        result: { lat: number; lon: number } | null;
+      } = await res.json();
       const r = data.result;
       return r ? { lat: r.lat, lon: r.lon } : null;
     } catch {
@@ -96,7 +133,82 @@ export async function geocode(
 
   inflight.set(key, promise);
   const value = await promise;
-  cache.set(key, value);
-  persistCache();
+  setCached(key, value);
   return value;
+}
+
+/**
+ * Geocode many queries in one HTTP request. Returns results in the same
+ * order as the input queries (after buildMapsQuery per item).
+ */
+export async function geocodeBatch(
+  items: Array<{ location: string; destination?: string }>,
+  onProgress?: (done: number, total: number) => void,
+): Promise<Array<LatLon | null>> {
+  const queries = items.map((item) =>
+    buildMapsQuery(item.location, item.destination),
+  );
+  const keys = queries.map(normalize);
+  const total = queries.length;
+  const out: Array<LatLon | null> = new Array(total).fill(null);
+  const cache = loadCache();
+  const uncachedIndices: number[] = [];
+
+  for (let i = 0; i < total; i++) {
+    const key = keys[i];
+    if (!key) {
+      onProgress?.(i + 1, total);
+      continue;
+    }
+    const hit = getCached(key);
+    if (hit) {
+      out[i] = hit;
+      onProgress?.(i + 1, total);
+    } else {
+      uncachedIndices.push(i);
+    }
+  }
+
+  if (uncachedIndices.length === 0) return out;
+
+  const uncachedQueries = uncachedIndices.map((i) => queries[i]);
+  try {
+    const res = await fetch("/api/geocode", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ queries: uncachedQueries }),
+    });
+    if (!res.ok) {
+      for (const i of uncachedIndices) {
+        const fallback = await geocode(items[i].location, items[i].destination);
+        out[i] = fallback;
+        onProgress?.(
+          uncachedIndices.indexOf(i) + (total - uncachedIndices.length) + 1,
+          total,
+        );
+      }
+      return out;
+    }
+    const data: {
+      results: Array<{ lat: number; lon: number } | null>;
+    } = await res.json();
+    let done = total - uncachedIndices.length;
+    for (let j = 0; j < uncachedIndices.length; j++) {
+      const i = uncachedIndices[j];
+      const r = data.results[j];
+      const value = r ? { lat: r.lat, lon: r.lon } : null;
+      out[i] = value;
+      const key = keys[i];
+      if (key) setCached(key, value);
+      done += 1;
+      onProgress?.(done, total);
+    }
+  } catch {
+    for (const i of uncachedIndices) {
+      out[i] = await geocode(items[i].location, items[i].destination);
+      onProgress?.(total, total);
+    }
+  }
+
+  return out;
 }

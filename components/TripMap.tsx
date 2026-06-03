@@ -1,250 +1,499 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import "leaflet/dist/leaflet.css";
-import type {
-  Map as LeafletMap,
-  LayerGroup,
-  Marker,
+import { useEffect, useMemo, useState } from "react";
+import {
+  APIProvider,
+  AdvancedMarker,
+  InfoWindow,
+  Map as GoogleMap,
   Polyline,
-  LatLngBoundsExpression,
-} from "leaflet";
-import type { Accommodation, Day, Trip } from "../types";
-import { geocode, type LatLon } from "../lib/geocode";
+  useMap,
+} from "@vis.gl/react-google-maps";
+import PlaceRatingBadge from "./PlaceRatingBadge";
+import type { GooglePlaceRating, Trip } from "../types";
+import {
+  buildTripMapCacheKey,
+  getTripMapCache,
+  setTripMapCache,
+  type CachedAccommodationPoint,
+  type CachedActivityPoint,
+  type CachedLatLon,
+} from "../lib/trip-map-cache";
+import {
+  hasTripGeoChanges,
+  mapPointsFromTrip,
+  mergeGeoIntoTrip,
+  resolveTripMapPoints,
+} from "../lib/trip-map-geo";
 
 /**
- * Interactive trip map.
+ * Interactive trip map (Google Maps).
  *
- * Renders every activity (and accommodation) on an OpenStreetMap base
- * layer, colour-coded by day, with a polyline connecting each day's
- * stops in chronological order. The component:
- *
- *   - Lazy-loads Leaflet (it touches `window`) so it stays SSR-safe.
- *   - Uses our `/api/geocode` proxy + localStorage cache so each unique
- *     place is resolved exactly once per device.
- *   - Lets the user filter to a single day (clicking a colour chip) or
- *     show them all at once.
- *   - Auto-fits the map to whatever is currently visible.
+ * Coordinates are read from `activity.geo` / `accommodation.geo` on the trip
+ * (persisted to Supabase for signed-in users). Missing places are geocoded via
+ * API, then saved back through `onTripGeoSaved`.
  */
+
+export interface MapFocusTarget {
+  activityId: string;
+  /** Bumped on every Maps click (even same activity) to re-trigger open. */
+  token: number;
+}
 
 interface TripMapProps {
   trip: Trip;
+  /** Persists geocoded coordinates on the trip (e.g. `updateUserTrip`). */
+  onTripGeoSaved?: (trip: Trip) => void;
+  /** Expands map, scrolls into view, closes any open popup, then opens this activity. */
+  focusTarget?: MapFocusTarget | null;
+  /** Live Google ratings (same source as activity cards). */
+  ratingForActivity?: (activityId: string) => GooglePlaceRating | undefined;
 }
 
-// Distinct, color-blind friendly palette cycled across days.
 const DAY_COLORS = [
-  "#34d399", // emerald
-  "#60a5fa", // sky
-  "#f472b6", // pink
-  "#fbbf24", // amber
-  "#a78bfa", // violet
-  "#f87171", // rose
-  "#22d3ee", // cyan
-  "#84cc16", // lime
-  "#fb923c", // orange
-  "#e879f9", // fuchsia
+  "#34d399",
+  "#60a5fa",
+  "#f472b6",
+  "#fbbf24",
+  "#a78bfa",
+  "#f87171",
+  "#22d3ee",
+  "#84cc16",
+  "#fb923c",
+  "#e879f9",
 ];
 
-const ACCOMMODATION_COLOR = "#facc15"; // yellow-400
+const ACCOMMODATION_COLOR = "#facc15";
 
-interface ActivityPoint {
-  kind: "activity";
-  dayIdx: number;
-  activityId: string;
-  title: string;
-  time: string;
-  description: string;
-  location: string;
-  point: LatLon;
-}
+const MAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.trim() ?? "";
 
-interface AccommodationPoint {
-  kind: "accommodation";
-  id: string;
-  name: string;
-  point: LatLon;
-}
+type ActivityPoint = CachedActivityPoint;
+type AccommodationPoint = CachedAccommodationPoint;
+type LatLon = CachedLatLon;
 
 type MapPoint = ActivityPoint | AccommodationPoint;
 
-function buildPopupHtml(p: MapPoint): string {
-  const escape = (s: string) =>
-    s.replace(/[&<>"']/g, (c) =>
-      c === "&"
-        ? "&amp;"
-        : c === "<"
-        ? "&lt;"
-        : c === ">"
-        ? "&gt;"
-        : c === '"'
-        ? "&quot;"
-        : "&#39;",
-    );
+function infoWindowKey(p: MapPoint): string {
+  return p.kind === "activity" ? `act-${p.activityId}` : `acc-${p.id}`;
+}
+
+function PopupShell({
+  onClose,
+  children,
+}: {
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="trip-map-popup relative box-border min-w-[200px] max-w-[272px] px-4 py-3.5 pr-11">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onClose();
+        }}
+        className="absolute right-2.5 top-2.5 flex h-7 w-7 items-center justify-center rounded-md text-[20px] leading-none text-slate-400 transition hover:bg-slate-100 hover:text-slate-800"
+        aria-label="Chiudi"
+      >
+        ×
+      </button>
+      {children}
+    </div>
+  );
+}
+
+function buildPopupContent(
+  p: MapPoint,
+  ratingForActivity?: (activityId: string) => GooglePlaceRating | undefined,
+): React.ReactNode {
   if (p.kind === "accommodation") {
-    return `
-      <div style="min-width:180px;font-family:Inter,system-ui,sans-serif;color:#0f0f0f">
-        <div style="font-size:11px;font-weight:600;color:#a16207;text-transform:uppercase;letter-spacing:.04em">Alloggio</div>
-        <div style="font-size:14px;font-weight:600;margin-top:2px">${escape(p.name)}</div>
-      </div>`;
+    return (
+      <div className="flex flex-col gap-2 font-sans text-slate-900">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">
+          Alloggio
+        </p>
+        <p className="text-sm font-semibold leading-snug">{p.name}</p>
+      </div>
+    );
   }
-  const time = p.time ? `<span style="color:#16a34a;font-weight:600">${escape(p.time)}</span> · ` : "";
-  return `
-    <div style="max-width:260px;font-family:Inter,system-ui,sans-serif;color:#0f0f0f">
-      <div style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.04em">Giorno ${p.dayIdx + 1}</div>
-      <div style="font-size:14px;font-weight:600;margin-top:2px;line-height:1.2">${escape(p.title)}</div>
-      <div style="font-size:12px;margin-top:4px;color:#475569">${time}${escape(p.location)}</div>
-      ${p.description ? `<div style="font-size:12px;margin-top:6px;color:#334155;line-height:1.4">${escape(p.description)}</div>` : ""}
-    </div>`;
+  const placeRating = ratingForActivity?.(p.activityId) ?? p.placeRating;
+
+  return (
+    <div className="flex flex-col gap-2 font-sans text-slate-900">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+        Giorno {p.dayIdx + 1}
+      </p>
+      <p className="text-sm font-semibold leading-snug">{p.title}</p>
+      <p className="text-xs leading-relaxed text-slate-600">
+        {p.time ? (
+          <span className="font-semibold text-emerald-700">{p.time}</span>
+        ) : null}
+        {p.time && p.location ? (
+          <span className="text-slate-400"> · </span>
+        ) : null}
+        {p.location}
+      </p>
+      {placeRating ? (
+        <PlaceRatingBadge rating={placeRating} variant="google" />
+      ) : null}
+      {p.description ? (
+        <p className="border-t border-slate-200/80 pt-2 text-xs leading-relaxed text-slate-700">
+          {p.description}
+        </p>
+      ) : null}
+      {p.mapsUrl ? (
+        <a
+          href={p.mapsUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 hover:underline"
+        >
+          Apri in Google Maps
+          <span aria-hidden>↗</span>
+        </a>
+      ) : null}
+    </div>
+  );
 }
 
-function makeNumberedIcon(L: typeof import("leaflet"), color: string, label: string) {
-  return L.divIcon({
-    className: "trip-map-marker",
-    html: `<div style="
-      width:28px;height:28px;border-radius:50%;
-      background:${color};
-      color:#0a0a0a;
-      font-weight:700;font-size:12px;
-      display:flex;align-items:center;justify-content:center;
-      border:2px solid rgba(255,255,255,.95);
-      box-shadow:0 2px 6px rgba(0,0,0,.45);
-      font-family:Inter,system-ui,sans-serif;
-    ">${label}</div>`,
-    iconSize: [28, 28],
-    iconAnchor: [14, 14],
-    popupAnchor: [0, -14],
-  });
+function NumberedMarkerPin({ color, label }: { color: string; label: string }) {
+  return (
+    <div
+      className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-white/95 text-xs font-bold text-[#0a0a0a] shadow-md"
+      style={{ background: color }}
+    >
+      {label}
+    </div>
+  );
 }
 
-function makeHomeIcon(L: typeof import("leaflet"), color: string) {
-  return L.divIcon({
-    className: "trip-map-marker",
-    html: `<div style="
-      width:30px;height:30px;border-radius:8px;
-      background:${color};
-      display:flex;align-items:center;justify-content:center;
-      border:2px solid rgba(255,255,255,.95);
-      box-shadow:0 2px 6px rgba(0,0,0,.45);
-      font-family:Inter,system-ui,sans-serif;
-    ">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0a0a0a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M3 12l9-9 9 9"/><path d="M5 10v10h14V10"/>
+function HomeMarkerPin({ color }: { color: string }) {
+  return (
+    <div
+      className="flex h-[30px] w-[30px] items-center justify-center rounded-lg border-2 border-white/95 shadow-md"
+      style={{ background: color }}
+    >
+      <svg
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="#0a0a0a"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+      >
+        <path d="M3 12l9-9 9 9" />
+        <path d="M5 10v10h14V10" />
       </svg>
-    </div>`,
-    iconSize: [30, 30],
-    iconAnchor: [15, 15],
-    popupAnchor: [0, -15],
-  });
+    </div>
+  );
 }
 
-/** Resolves every activity + accommodation in the trip into lat/lon. */
-async function geocodeTrip(
+function persistMapResult(
   trip: Trip,
-  onProgress?: (done: number, total: number) => void,
-): Promise<{ activities: ActivityPoint[]; accommodations: AccommodationPoint[] }> {
-  const dest = trip.location;
-  const tasks: Array<{ run: () => Promise<MapPoint | null> }> = [];
+  cacheKey: string,
+  result: {
+    activities: CachedActivityPoint[];
+    accommodations: CachedAccommodationPoint[];
+  },
+  onTripGeoSaved?: (trip: Trip) => void,
+) {
+  setTripMapCache(cacheKey, result);
+  if (onTripGeoSaved) {
+    const updated = mergeGeoIntoTrip(trip, result);
+    if (hasTripGeoChanges(trip, updated)) onTripGeoSaved(updated);
+  }
+}
 
-  trip.days.forEach((day, dayIdx) => {
-    day.activities.forEach((a) => {
-      tasks.push({
-        run: async () => {
-          const p = await geocode(a.location || dest, dest);
-          if (!p) return null;
-          return {
-            kind: "activity",
-            dayIdx,
-            activityId: a.id,
-            title: a.title,
-            time: a.time,
-            description: a.description,
-            location: a.location,
-            point: p,
-          };
-        },
-      });
-    });
-  });
+function FitMapBounds({
+  points,
+  disabled,
+}: {
+  points: Array<{ lat: number; lng: number }>;
+  disabled?: boolean;
+}) {
+  const map = useMap();
 
-  (trip.accommodations ?? []).forEach((acc) => {
-    tasks.push({
-      run: async () => {
-        const p = await geocode(acc.name, dest);
-        if (!p) return null;
-        return { kind: "accommodation", id: acc.id, name: acc.name, point: p };
-      },
-    });
-  });
+  useEffect(() => {
+    if (disabled || !map || points.length === 0) return;
+    if (points.length === 1) {
+      map.setCenter(points[0]);
+      map.setZoom(13);
+      return;
+    }
+    const bounds = new google.maps.LatLngBounds();
+    for (const p of points) bounds.extend(p);
+    map.fitBounds(bounds, { top: 40, right: 40, bottom: 40, left: 40 });
+  }, [map, points, disabled]);
 
-  const total = tasks.length;
-  let done = 0;
-  const settled = await Promise.all(
-    tasks.map((t) =>
-      t.run().then((r) => {
-        done += 1;
-        onProgress?.(done, total);
-        return r;
-      }),
-    ),
+  return null;
+}
+
+/** Centers the map after an InfoWindow opens (popup needs time to lay out). */
+function CenterOnInfoPoint({ infoPoint }: { infoPoint: MapPoint | null }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!map || !infoPoint) return;
+
+    const position = {
+      lat: infoPoint.point.lat,
+      lng: infoPoint.point.lon,
+    };
+
+    const center = () => {
+      map.panTo(position);
+      const zoom = map.getZoom();
+      if (zoom == null || zoom < 14) map.setZoom(14);
+      // Shift view so the popup above the marker stays in frame.
+      map.panBy(0, -140);
+    };
+
+    const t = window.setTimeout(center, 180);
+    return () => window.clearTimeout(t);
+  }, [
+    map,
+    infoPoint?.point.lat,
+    infoPoint?.point.lon,
+    infoPoint?.kind === "activity" ? infoPoint?.activityId : infoPoint?.id,
+  ]);
+
+  return null;
+}
+
+function TripMapGoogle({
+  activities,
+  accommodationPoints,
+  selectedDay,
+  infoPoint,
+  onInfoPointChange,
+  ratingForActivity,
+}: {
+  activities: ActivityPoint[];
+  accommodationPoints: AccommodationPoint[];
+  selectedDay: number | null;
+  infoPoint: MapPoint | null;
+  onInfoPointChange: (point: MapPoint | null) => void;
+  ratingForActivity?: (activityId: string) => GooglePlaceRating | undefined;
+}) {
+
+  const visible = useMemo(
+    () =>
+      activities.filter(
+        (a) => selectedDay === null || a.dayIdx === selectedDay,
+      ),
+    [activities, selectedDay],
   );
 
-  const activities: ActivityPoint[] = [];
-  const accommodations: AccommodationPoint[] = [];
-  for (const r of settled) {
-    if (!r) continue;
-    if (r.kind === "activity") activities.push(r);
-    else accommodations.push(r);
-  }
-  return { activities, accommodations };
+  const polylines = useMemo(() => {
+    const byDay = new Map<number, ActivityPoint[]>();
+    for (const a of visible) {
+      const list = byDay.get(a.dayIdx) ?? [];
+      list.push(a);
+      byDay.set(a.dayIdx, list);
+    }
+    const lines: Array<{ dayIdx: number; path: google.maps.LatLngLiteral[] }> =
+      [];
+    for (const [dayIdx, list] of byDay.entries()) {
+      if (list.length < 2) continue;
+      lines.push({
+        dayIdx,
+        path: list.map((p) => ({ lat: p.point.lat, lng: p.point.lon })),
+      });
+    }
+    return lines;
+  }, [visible]);
+
+  const fitPoints = useMemo(() => {
+    const pts: google.maps.LatLngLiteral[] = visible.map((a) => ({
+      lat: a.point.lat,
+      lng: a.point.lon,
+    }));
+    for (const acc of accommodationPoints) {
+      pts.push({ lat: acc.point.lat, lng: acc.point.lon });
+    }
+    return pts;
+  }, [visible, accommodationPoints]);
+
+  const runningIndex = useMemo(() => {
+    const counts = new Map<number, number>();
+    return visible.map((a) => {
+      const i = (counts.get(a.dayIdx) ?? 0) + 1;
+      counts.set(a.dayIdx, i);
+      return i;
+    });
+  }, [visible]);
+
+  const defaultCenter = fitPoints[0] ?? { lat: 41.9028, lng: 12.4964 };
+
+  const closePopup = () => onInfoPointChange(null);
+
+  return (
+    <GoogleMap
+      defaultCenter={defaultCenter}
+      defaultZoom={5}
+      mapId="DEMO_MAP_ID"
+      gestureHandling="cooperative"
+      disableDefaultUI={false}
+      className="h-full w-full"
+      reuseMaps
+      onClick={closePopup}
+    >
+      <FitMapBounds points={fitPoints} disabled={!!infoPoint} />
+      <CenterOnInfoPoint infoPoint={infoPoint} />
+
+      {polylines.map(({ dayIdx, path }) => (
+        <Polyline
+          key={`line-${dayIdx}`}
+          path={path}
+          strokeColor={DAY_COLORS[dayIdx % DAY_COLORS.length]}
+          strokeWeight={4}
+          strokeOpacity={0.85}
+        />
+      ))}
+
+      {visible.map((a, idx) => {
+        const color = DAY_COLORS[a.dayIdx % DAY_COLORS.length];
+        const label = String(runningIndex[idx]);
+        return (
+          <AdvancedMarker
+            key={a.activityId}
+            position={{ lat: a.point.lat, lng: a.point.lon }}
+            onClick={(e) => {
+              e.stop();
+              onInfoPointChange(a);
+            }}
+          >
+            <NumberedMarkerPin color={color} label={label} />
+          </AdvancedMarker>
+        );
+      })}
+
+      {accommodationPoints.map((acc) => (
+        <AdvancedMarker
+          key={acc.id}
+          position={{ lat: acc.point.lat, lng: acc.point.lon }}
+          onClick={(e) => {
+            e.stop();
+            onInfoPointChange(acc);
+          }}
+          zIndex={-100}
+        >
+          <HomeMarkerPin color={ACCOMMODATION_COLOR} />
+        </AdvancedMarker>
+      ))}
+
+      {infoPoint ? (
+        <InfoWindow
+          key={infoWindowKey(infoPoint)}
+          position={{
+            lat: infoPoint.point.lat,
+            lng: infoPoint.point.lon,
+          }}
+          headerDisabled
+          onClose={closePopup}
+          onCloseClick={closePopup}
+        >
+          <PopupShell onClose={closePopup}>
+            {buildPopupContent(infoPoint, ratingForActivity)}
+          </PopupShell>
+        </InfoWindow>
+      ) : null}
+    </GoogleMap>
+  );
 }
 
-const TripMap = ({ trip }: TripMapProps) => {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const mapRef = useRef<LeafletMap | null>(null);
-  const layersRef = useRef<{
-    markers: LayerGroup | null;
-    lines: LayerGroup | null;
-  }>({ markers: null, lines: null });
-  const leafletRef = useRef<typeof import("leaflet") | null>(null);
-
+const TripMap = ({
+  trip,
+  onTripGeoSaved,
+  focusTarget = null,
+  ratingForActivity,
+}: TripMapProps) => {
   const [expanded, setExpanded] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(
+    null,
+  );
   const [activities, setActivities] = useState<ActivityPoint[]>([]);
-  const [accommodationPoints, setAccommodationPoints] = useState<AccommodationPoint[]>([]);
-  /** `null` = show all days. */
+  const [accommodationPoints, setAccommodationPoints] = useState<
+    AccommodationPoint[]
+  >([]);
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
+  const [infoPoint, setInfoPoint] = useState<MapPoint | null>(null);
 
   const totalActivities = useMemo(
     () => trip.days.reduce((acc, d) => acc + d.activities.length, 0),
     [trip],
   );
 
-  // Identity key for the data we need to geocode. Changes when any
-  // activity/accommodation is added, removed, or its location edited.
-  const dataKey = useMemo(() => {
-    const acts = trip.days
-      .flatMap((d) => d.activities.map((a) => `${a.id}:${a.location}`))
-      .join("|");
-    const accs = (trip.accommodations ?? [])
-      .map((a) => `${a.id}:${a.name}`)
-      .join("|");
-    return `${trip.location}::${acts}::${accs}`;
-  }, [trip]);
+  const cacheKey = useMemo(() => buildTripMapCacheKey(trip), [trip]);
 
-  // ── Geocode whenever the trip data changes (and only while expanded) ──
+  const applyResult = (
+    result: {
+      activities: CachedActivityPoint[];
+      accommodations: CachedAccommodationPoint[];
+    },
+    persist = true,
+  ) => {
+    setActivities(result.activities);
+    setAccommodationPoints(result.accommodations);
+    if (persist) persistMapResult(trip, cacheKey, result, onTripGeoSaved);
+  };
+
+  // Restore markers from trip JSON or browser cache when data changes.
+  useEffect(() => {
+    const fromTrip = mapPointsFromTrip(trip);
+    if (fromTrip.complete) {
+      setActivities(fromTrip.activities);
+      setAccommodationPoints(fromTrip.accommodations);
+      return;
+    }
+    const cached = getTripMapCache(cacheKey);
+    if (cached) {
+      setActivities(cached.activities);
+      setAccommodationPoints(cached.accommodations);
+    } else {
+      setActivities([]);
+      setAccommodationPoints([]);
+    }
+  }, [cacheKey, trip]);
+
   useEffect(() => {
     if (!expanded) return;
     let cancelled = false;
+
+    const fromTrip = mapPointsFromTrip(trip);
+    if (fromTrip.complete) {
+      setActivities(fromTrip.activities);
+      setAccommodationPoints(fromTrip.accommodations);
+      setLoading(false);
+      setProgress(null);
+      return;
+    }
+
+    const cached = getTripMapCache(cacheKey);
+    if (cached) {
+      applyResult(cached);
+      setLoading(false);
+      setProgress(null);
+      return;
+    }
+
     setLoading(true);
     setProgress({ done: 0, total: 0 });
-    geocodeTrip(trip, (done, total) => {
+    resolveTripMapPoints(trip, (done, total) => {
       if (!cancelled) setProgress({ done, total });
     })
-      .then(({ activities, accommodations }) => {
+      .then(({ activities: acts, accommodations, updatedTrip }) => {
         if (cancelled) return;
-        setActivities(activities);
+        setActivities(acts);
         setAccommodationPoints(accommodations);
+        setTripMapCache(cacheKey, { activities: acts, accommodations });
+        if (onTripGeoSaved && hasTripGeoChanges(trip, updatedTrip)) {
+          onTripGeoSaved(updatedTrip);
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -252,147 +501,75 @@ const TripMap = ({ trip }: TripMapProps) => {
     return () => {
       cancelled = true;
     };
-  }, [expanded, dataKey, trip]);
-
-  // ── Initialise the Leaflet map once the section is opened ─────────────
-  useEffect(() => {
-    if (!expanded) return;
-    if (mapRef.current || !containerRef.current) return;
-    let cancelled = false;
-    (async () => {
-      const L = await import("leaflet");
-      if (cancelled || !containerRef.current) return;
-      leafletRef.current = L;
-
-      const map = L.map(containerRef.current, {
-        zoomControl: true,
-        scrollWheelZoom: false,
-        attributionControl: true,
-      }).setView([41.9028, 12.4964], 5);
-
-      // CartoDB Voyager — light, Google-Maps-like base style (subtle road
-      // colors, named POIs). Free to use with attribution and no API key.
-      L.tileLayer(
-        "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
-        {
-          attribution:
-            '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-          subdomains: "abcd",
-          maxZoom: 19,
-        },
-      ).addTo(map);
-
-      layersRef.current.lines = L.layerGroup().addTo(map);
-      layersRef.current.markers = L.layerGroup().addTo(map);
-
-      mapRef.current = map;
-      // Make sure tiles fill the container after the section animates open.
-      requestAnimationFrame(() => map.invalidateSize());
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [expanded]);
-
-  // Cleanup on unmount.
-  useEffect(
-    () => () => {
-      mapRef.current?.remove();
-      mapRef.current = null;
-      layersRef.current = { markers: null, lines: null };
-    },
-    [],
-  );
-
-  // ── Redraw layers whenever resolved data or the day filter changes ────
-  useEffect(() => {
-    const map = mapRef.current;
-    const L = leafletRef.current;
-    const markers = layersRef.current.markers;
-    const lines = layersRef.current.lines;
-    if (!map || !L || !markers || !lines) return;
-
-    markers.clearLayers();
-    lines.clearLayers();
-
-    const visible = activities.filter(
-      (a) => selectedDay === null || a.dayIdx === selectedDay,
-    );
-
-    // Per-day route lines (chronological inside a day) ──────────────────
-    const byDay = new Map<number, ActivityPoint[]>();
-    for (const a of visible) {
-      const list = byDay.get(a.dayIdx) ?? [];
-      list.push(a);
-      byDay.set(a.dayIdx, list);
-    }
-    const allLatLngs: Array<[number, number]> = [];
-    for (const [dayIdx, list] of byDay.entries()) {
-      if (list.length < 2) {
-        list.forEach((p) => allLatLngs.push([p.point.lat, p.point.lon]));
-        continue;
-      }
-      const coords: Array<[number, number]> = list.map((p) => [p.point.lat, p.point.lon]);
-      const color = DAY_COLORS[dayIdx % DAY_COLORS.length];
-      L.polyline(coords, {
-        color,
-        weight: 4,
-        opacity: 0.85,
-        dashArray: "6 8",
-      }).addTo(lines as LayerGroup) as Polyline;
-      coords.forEach((c) => allLatLngs.push(c));
-    }
-
-    // Activity markers ───────────────────────────────────────────────────
-    const indexByDay = new Map<number, number>();
-    for (const a of visible) {
-      const i = (indexByDay.get(a.dayIdx) ?? 0) + 1;
-      indexByDay.set(a.dayIdx, i);
-      const color = DAY_COLORS[a.dayIdx % DAY_COLORS.length];
-      const m = L.marker([a.point.lat, a.point.lon], {
-        icon: makeNumberedIcon(L, color, String(i)),
-      }) as Marker;
-      m.bindPopup(buildPopupHtml(a), { offset: L.point(0, -4) });
-      m.addTo(markers as LayerGroup);
-    }
-
-    // Accommodation markers (always visible — they "anchor" the trip) ────
-    for (const acc of accommodationPoints) {
-      const m = L.marker([acc.point.lat, acc.point.lon], {
-        icon: makeHomeIcon(L, ACCOMMODATION_COLOR),
-        zIndexOffset: -100,
-      }) as Marker;
-      m.bindPopup(buildPopupHtml(acc), { offset: L.point(0, -4) });
-      m.addTo(markers as LayerGroup);
-      allLatLngs.push([acc.point.lat, acc.point.lon]);
-    }
-
-    // Fit bounds to whatever is now on the map ───────────────────────────
-    if (allLatLngs.length === 1) {
-      map.setView(allLatLngs[0], 13);
-    } else if (allLatLngs.length > 1) {
-      const bounds: LatLngBoundsExpression = allLatLngs;
-      map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
-    }
-  }, [activities, accommodationPoints, selectedDay]);
-
-  // Re-flow tiles when the section is opened/resized.
-  useEffect(() => {
-    if (!expanded) return;
-    const map = mapRef.current;
-    if (!map) return;
-    const id = window.setTimeout(() => map.invalidateSize(), 350);
-    return () => window.clearTimeout(id);
-  }, [expanded]);
+  }, [expanded, cacheKey, trip, onTripGeoSaved]);
 
   const resolvedCount = activities.length;
   const missing =
     !loading && progress
-      ? Math.max(0, progress.total - resolvedCount - accommodationPoints.length)
+      ? Math.max(
+          0,
+          progress.total - resolvedCount - accommodationPoints.length,
+        )
       : 0;
 
+  const mapReady = Boolean(MAPS_KEY);
+
+  useEffect(() => {
+    if (!focusTarget) return;
+    setExpanded(true);
+    const t = window.setTimeout(() => {
+      document
+        .getElementById("trip-map-section")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
+    return () => window.clearTimeout(t);
+  }, [focusTarget?.activityId, focusTarget?.token]);
+
+  // Close any open popup first, then open the newly requested activity.
+  useEffect(() => {
+    if (!focusTarget) return;
+
+    setInfoPoint(null);
+
+    if (loading) return;
+
+    const { activityId } = focusTarget;
+    const point = activities.find((a) => a.activityId === activityId);
+    if (!point) return;
+
+    let mapsUrl = point.mapsUrl;
+    if (!mapsUrl) {
+      for (const day of trip.days) {
+        const a = day.activities.find((x) => x.id === activityId);
+        if (a?.mapsUrl) {
+          mapsUrl = a.mapsUrl;
+          break;
+        }
+      }
+    }
+    const enriched: ActivityPoint = mapsUrl ? { ...point, mapsUrl } : point;
+
+    const openTimer = window.setTimeout(() => {
+      setSelectedDay(enriched.dayIdx);
+      setInfoPoint(enriched);
+    }, 80);
+
+    return () => {
+      window.clearTimeout(openTimer);
+    };
+  }, [
+    focusTarget?.activityId,
+    focusTarget?.token,
+    activities,
+    loading,
+    trip.days,
+  ]);
+
   return (
-    <section className="mt-6 overflow-hidden rounded-2xl border border-white/[0.06] bg-[#161616]">
+    <section
+      id="trip-map-section"
+      className="mt-6 scroll-mt-24 overflow-hidden rounded-2xl border border-white/[0.06] bg-[#161616] lg:scroll-mt-8"
+    >
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
@@ -403,7 +580,16 @@ const TripMap = ({ trip }: TripMapProps) => {
       >
         <div className="flex items-center gap-3">
           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-400/10 text-emerald-300">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
               <path d="M9 20l-5.447-2.724A2 2 0 0 1 2.5 15.5V5.382a1 1 0 0 1 1.447-.894L9 7" />
               <path d="M9 7v13" />
               <path d="M15 4v13" />
@@ -419,7 +605,7 @@ const TripMap = ({ trip }: TripMapProps) => {
               {trip.accommodations?.length
                 ? ` · ${trip.accommodations.length} ${trip.accommodations.length === 1 ? "alloggio" : "alloggi"}`
                 : ""}
-              {" · "}OpenStreetMap
+              {" · "}Google Maps
             </p>
           </div>
         </div>
@@ -446,7 +632,6 @@ const TripMap = ({ trip }: TripMapProps) => {
       >
         <div className="min-h-0 overflow-hidden">
           <div className="p-4">
-            {/* ── Day filter chips ───────────────────────────────────── */}
             <div className="flex flex-wrap items-center gap-2 pb-3">
               <button
                 type="button"
@@ -495,7 +680,6 @@ const TripMap = ({ trip }: TripMapProps) => {
               ) : null}
             </div>
 
-            {/* ── Status row ─────────────────────────────────────────── */}
             <div className="flex flex-wrap items-center justify-between gap-2 pb-2 text-[11px] text-white/50">
               <span>
                 {loading
@@ -513,11 +697,29 @@ const TripMap = ({ trip }: TripMapProps) => {
               ) : null}
             </div>
 
-            {/* ── Map container ──────────────────────────────────────── */}
-            <div
-              ref={containerRef}
-              className="trip-map-canvas h-[420px] w-full overflow-hidden rounded-xl border border-white/[0.06] bg-[#e9e6df]"
-            />
+            {!mapReady ? (
+              <div className="flex h-[420px] w-full items-center justify-center rounded-xl border border-amber-400/20 bg-amber-400/5 px-6 text-center text-sm text-amber-200/90">
+                Configura{" "}
+                <code className="mx-1 rounded bg-black/30 px-1.5 py-0.5 text-xs">
+                  NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+                </code>{" "}
+                in <code className="mx-1 text-xs">.env.local</code> per
+                visualizzare la mappa. Vedi README.
+              </div>
+            ) : (
+              <div className="trip-map-canvas h-[420px] w-full overflow-hidden rounded-xl border border-white/[0.06]">
+                <APIProvider apiKey={MAPS_KEY}>
+                  <TripMapGoogle
+                    activities={activities}
+                    accommodationPoints={accommodationPoints}
+                    selectedDay={selectedDay}
+                    infoPoint={infoPoint}
+                    onInfoPointChange={setInfoPoint}
+                    ratingForActivity={ratingForActivity}
+                  />
+                </APIProvider>
+              </div>
+            )}
           </div>
         </div>
       </div>

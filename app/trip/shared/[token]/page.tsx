@@ -7,7 +7,7 @@ import Sidebar from "../../../../components/Sidebar";
 import DayTimeline from "../../../../components/DayTimeline";
 import SafeImage from "../../../../components/SafeImage";
 import ManageAccommodationsDialog from "../../../../components/ManageAccommodationsDialog";
-import TripMap from "../../../../components/TripMap";
+import TripMap, { type MapFocusTarget } from "../../../../components/TripMap";
 import {
   fetchSharedTrip,
   resolveShareToken,
@@ -17,6 +17,7 @@ import {
 import { createSupabaseBrowserClient } from "../../../../lib/supabase/client";
 import type { WeatherInfo } from "../../../../lib/weather";
 import { useActivityImages } from "../../../../lib/use-activity-images";
+import { usePlaceRatings } from "../../../../lib/use-place-ratings";
 import { buildMapsSearchUrl, buildMapsUrl } from "../../../../lib/maps";
 import {
   migrateTripAccommodations,
@@ -58,6 +59,14 @@ export default function SharedTripPage({
   const [error, setError] = useState<string | null>(null);
   const [manageAccommodationsOpen, setManageAccommodationsOpen] =
     useState(false);
+  const [mapFocus, setMapFocus] = useState<MapFocusTarget | null>(null);
+
+  const focusActivityOnMap = useCallback((activityId: string) => {
+    setMapFocus((prev) => ({
+      activityId,
+      token: (prev?.token ?? 0) + 1,
+    }));
+  }, []);
 
   const [weatherByDate, setWeatherByDate] = useState<
     Record<string, WeatherInfo>
@@ -147,6 +156,11 @@ export default function SharedTripPage({
       void updateSharedTrip(normalized);
     },
     [],
+  );
+
+  const { ratingForActivity } = usePlaceRatings(
+    trip ?? undefined,
+    permission === "write" ? commit : undefined,
   );
 
   const handleChangeDays = useCallback(
@@ -302,7 +316,12 @@ export default function SharedTripPage({
         </div>
 
         {/* Map */}
-        <TripMap trip={trip} />
+        <TripMap
+          trip={trip}
+          onTripGeoSaved={permission === "write" ? commit : undefined}
+          focusTarget={mapFocus}
+          ratingForActivity={ratingForActivity}
+        />
 
         {/* Timeline */}
         <DayTimeline
@@ -312,6 +331,8 @@ export default function SharedTripPage({
           destination={trip.location}
           accommodations={trip.accommodations ?? []}
           onChangeDays={permission === "write" ? handleChangeDays : undefined}
+          onActivityShowOnMap={focusActivityOnMap}
+          ratingForActivity={ratingForActivity}
         />
       </main>
 

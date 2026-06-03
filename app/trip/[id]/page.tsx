@@ -7,10 +7,11 @@ import DayTimeline from "../../../components/DayTimeline";
 import SafeImage from "../../../components/SafeImage";
 import ShareTripDialog from "../../../components/ShareTripDialog";
 import ManageAccommodationsDialog from "../../../components/ManageAccommodationsDialog";
-import TripMap from "../../../components/TripMap";
+import TripMap, { type MapFocusTarget } from "../../../components/TripMap";
 import { updateUserTrip, useAllTrips } from "../../../lib/trips-store";
 import type { WeatherInfo } from "../../../lib/weather";
 import { useActivityImages } from "../../../lib/use-activity-images";
+import { usePlaceRatings } from "../../../lib/use-place-ratings";
 import { buildMapsSearchUrl, buildMapsUrl } from "../../../lib/maps";
 import {
   migrateTripAccommodations,
@@ -64,6 +65,14 @@ export default function TripDetails({
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [manageAccommodationsOpen, setManageAccommodationsOpen] =
     useState(false);
+  const [mapFocus, setMapFocus] = useState<MapFocusTarget | null>(null);
+
+  const focusActivityOnMap = useCallback((activityId: string) => {
+    setMapFocus((prev) => ({
+      activityId,
+      token: (prev?.token ?? 0) + 1,
+    }));
+  }, []);
 
   const [weatherByDate, setWeatherByDate] = useState<
     Record<string, WeatherInfo>
@@ -104,6 +113,8 @@ export default function TripDetails({
     setTrip(normalized);
     updateUserTrip(normalized);
   }, []);
+
+  const { ratingForActivity } = usePlaceRatings(trip, commit);
 
   const handleChangeDays = useCallback(
     (nextDays: Day[]) => {
@@ -272,7 +283,12 @@ export default function TripDetails({
         </div>
 
         {/* ── Map ───────────────────────────────────────────────────────── */}
-        <TripMap trip={trip} />
+        <TripMap
+          trip={trip}
+          onTripGeoSaved={commit}
+          focusTarget={mapFocus}
+          ratingForActivity={ratingForActivity}
+        />
 
         {/* ── Timeline ──────────────────────────────────────────────────── */}
         <DayTimeline
@@ -282,6 +298,8 @@ export default function TripDetails({
           destination={trip.location}
           accommodations={trip.accommodations ?? []}
           onChangeDays={handleChangeDays}
+          onActivityShowOnMap={focusActivityOnMap}
+          ratingForActivity={ratingForActivity}
         />
       </main>
 

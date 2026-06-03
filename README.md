@@ -112,6 +112,43 @@ The login page lives at `/login` with tabs to switch between sign-in and
 sign-up. Password reset uses `/auth/update-password` once the user clicks
 the link in the email.
 
+## Google Maps (trip map)
+
+The collapsible **Mappa del viaggio** on trip detail pages uses the
+**Maps JavaScript API** for the interactive map and the **Geocoding API**
+to place activity markers. Without a key, geocoding falls back to
+OpenStreetMap Nominatim (slower: ~1 request/second).
+
+### Setup
+
+1. In [Google Cloud Console](https://console.cloud.google.com/), create a
+   project with **billing** enabled (required for the free monthly credit).
+2. Enable **Maps JavaScript API**, **Geocoding API**, and **Places API (New)**
+   (`places.googleapis.com`). The older “Places API” (legacy) is only used as
+   a fallback for ratings.
+3. Create an API key restricted to:
+   - **Application**: HTTP referrers — `http://localhost:3000/*` and your
+     production origin (e.g. `https://your-app.vercel.app/*`).
+   - **APIs**: only the two APIs above.
+4. Add to `.env.local` (see `.env.example`):
+
+   ```bash
+   NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=your_key_here
+   GOOGLE_MAPS_API_KEY=your_key_here
+   ```
+
+Use the same key for both variables: the public one loads the map in the
+browser; the server-only one geocodes locations without exposing usage to
+clients. Restart `npm run dev` after changing env vars.
+
+**Signed-in users:** after the first geocode, coordinates are stored on each
+activity/accommodation as `geo` inside the trip JSON in Supabase, so the map
+loads on any device without calling the Geocoding API again (until a
+location changes). Guests keep coordinates in `localStorage` only.
+
+**Google ratings** on activity cards and map popups use the **Places API**
+(Find Place). Ratings are cached on the trip as `placeRating` when logged in.
+
 ## Storage
 
 Trips are stored in the browser's `localStorage`

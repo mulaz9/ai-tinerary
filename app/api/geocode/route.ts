@@ -1,34 +1,29 @@
 import { NextResponse } from "next/server";
 
 /**
- * Geocoding proxy over OpenStreetMap Nominatim.
+ * Geocoding proxy: Google Geocoding API (fast) with Nominatim fallback.
  *
- * Why a proxy?
- *  - Nominatim's free tier requires a real `User-Agent` and "absolute
- *    maximum of 1 request per second" (see https://operations.osmfoundation.org/policies/nominatim/).
- *    Doing it from the browser would leak the page Referer and offer no
- *    rate-limit guarantees across users.
- *  - The route maintains an in-memory cache so repeated lookups for the
- *    same query are instant and don't hit Nominatim again.
- *  - A serial queue throttles outbound calls to 1.1 req/s globally
- *    regardless of how many parallel clients ask at once.
+ * GET  /api/geocode?q=Colosseo, Roma, Italia
+ *   → { result: { lat, lon, displayName } | null }
  *
- * GET /api/geocode?q=Colosseo, Roma, Italia
- *   → { result: { lat: number, lon: number, displayName: string } | null }
+ * POST /api/geocode  { queries: string[] }
+ *   → { results: Array<{ lat, lon, displayName } | null> }
  */
 
 export const runtime = "nodejs";
-// Cache responses on the CDN for a long time — addresses don't move.
-export const revalidate = 0;
 
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/search";
-// Nominatim's policy requires a meaningful User-Agent. They actively
-// block requests that look like default http-client UAs or use fake
-// example.com contacts. Override via env if you want a custom contact.
+const GOOGLE_GEOCODE_URL =
+  "https://maps.googleapis.com/maps/api/geocode/json";
 const USER_AGENT =
   process.env.NOMINATIM_USER_AGENT?.trim() || "ai-tinerary/1.0";
 
-interface GeocodeResult {
+const GOOGLE_KEY =
+  process.env.GOOGLE_MAPS_API_KEY?.trim() ||
+  process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.trim() ||
+  "";
+
+export interface GeocodeResult {
   lat: number;
   lon: number;
   displayName: string;
@@ -36,37 +31,63 @@ interface GeocodeResult {
 
 const cache = new Map<string, GeocodeResult | null>();
 
-// Serial queue → at most one fetch in flight; minimum 1100ms between
-// outbound calls. Resolves in FIFO order.
-let queueTail: Promise<unknown> = Promise.resolve();
-let lastCallAt = 0;
-const MIN_INTERVAL_MS = 1100;
-
-function enqueue<T>(work: () => Promise<T>): Promise<T> {
-  const run = async (): Promise<T> => {
-    const wait = Math.max(0, MIN_INTERVAL_MS - (Date.now() - lastCallAt));
-    if (wait) await new Promise((r) => setTimeout(r, wait));
-    try {
-      return await work();
-    } finally {
-      lastCallAt = Date.now();
-    }
-  };
-  const next = queueTail.then(run, run);
-  queueTail = next.catch(() => undefined);
-  return next;
-}
+// Nominatim fallback: serial queue, 1.1s between outbound calls.
+let nominatimTail: Promise<unknown> = Promise.resolve();
+let lastNominatimAt = 0;
+const NOMINATIM_MIN_MS = 1100;
 
 function normalize(q: string): string {
   return q.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
-async function geocodeOne(query: string): Promise<GeocodeResult | null> {
-  const key = normalize(query);
-  if (!key) return null;
-  if (cache.has(key)) return cache.get(key) ?? null;
+function enqueueNominatim<T>(work: () => Promise<T>): Promise<T> {
+  const run = async (): Promise<T> => {
+    const wait = Math.max(0, NOMINATIM_MIN_MS - (Date.now() - lastNominatimAt));
+    if (wait) await new Promise((r) => setTimeout(r, wait));
+    try {
+      return await work();
+    } finally {
+      lastNominatimAt = Date.now();
+    }
+  };
+  const next = nominatimTail.then(run, run);
+  nominatimTail = next.catch(() => undefined);
+  return next;
+}
 
-  const result = await enqueue(async () => {
+async function geocodeGoogle(query: string): Promise<GeocodeResult | null> {
+  if (!GOOGLE_KEY) return null;
+  const url = new URL(GOOGLE_GEOCODE_URL);
+  url.searchParams.set("address", query);
+  url.searchParams.set("key", GOOGLE_KEY);
+
+  try {
+    const res = await fetch(url.toString(), { cache: "no-store" });
+    if (!res.ok) return null;
+    const data: {
+      status: string;
+      results?: Array<{
+        formatted_address: string;
+        geometry: { location: { lat: number; lng: number } };
+      }>;
+    } = await res.json();
+    if (data.status !== "OK" || !data.results?.[0]) return null;
+    const first = data.results[0];
+    const lat = first.geometry.location.lat;
+    const lon = first.geometry.location.lng;
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    return {
+      lat,
+      lon,
+      displayName: first.formatted_address,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function geocodeNominatim(query: string): Promise<GeocodeResult | null> {
+  return enqueueNominatim(async () => {
     const url = new URL(NOMINATIM_URL);
     url.searchParams.set("q", query);
     url.searchParams.set("format", "json");
@@ -97,10 +118,71 @@ async function geocodeOne(query: string): Promise<GeocodeResult | null> {
       return null;
     }
   });
+}
+
+/** Resolve one query; uses cache, then Google, then Nominatim. */
+export async function geocodeOne(query: string): Promise<GeocodeResult | null> {
+  const key = normalize(query);
+  if (!key) return null;
+  if (cache.has(key)) return cache.get(key) ?? null;
+
+  let result = await geocodeGoogle(query);
+  if (!result) result = await geocodeNominatim(query);
 
   cache.set(key, result);
   return result;
 }
+
+const GOOGLE_CONCURRENCY = 8;
+
+async function geocodeMany(queries: string[]): Promise<(GeocodeResult | null)[]> {
+  const normalized = queries.map((q) => normalize(q));
+  const results: (GeocodeResult | null)[] = new Array(queries.length).fill(
+    null,
+  );
+  const pending: Array<{ index: number; query: string }> = [];
+
+  for (let i = 0; i < queries.length; i++) {
+    const key = normalized[i];
+    if (!key) continue;
+    if (cache.has(key)) {
+      results[i] = cache.get(key) ?? null;
+      continue;
+    }
+    pending.push({ index: i, query: queries[i].trim() });
+  }
+
+  if (pending.length === 0) return results;
+
+  if (GOOGLE_KEY) {
+    for (let offset = 0; offset < pending.length; offset += GOOGLE_CONCURRENCY) {
+      const chunk = pending.slice(offset, offset + GOOGLE_CONCURRENCY);
+      const chunkResults = await Promise.all(
+        chunk.map(({ query }) => geocodeGoogle(query)),
+      );
+      for (let j = 0; j < chunk.length; j++) {
+        const { index, query } = chunk[j];
+        let r = chunkResults[j];
+        if (!r) r = await geocodeNominatim(query);
+        const key = normalize(query);
+        cache.set(key, r);
+        results[index] = r;
+      }
+    }
+    return results;
+  }
+
+  // No Google key: Nominatim only, serial.
+  for (const { index, query } of pending) {
+    results[index] = await geocodeOne(query);
+  }
+  return results;
+}
+
+const CACHE_HEADERS = {
+  "cache-control":
+    "public, s-maxage=2592000, stale-while-revalidate=604800",
+};
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
@@ -113,14 +195,35 @@ export async function GET(req: Request) {
   }
 
   const result = await geocodeOne(q);
-  return NextResponse.json(
-    { result },
-    {
-      headers: {
-        // Geocoding results are stable for a very long time.
-        "cache-control":
-          "public, s-maxage=2592000, stale-while-revalidate=604800",
-      },
-    },
-  );
+  return NextResponse.json({ result }, { headers: CACHE_HEADERS });
+}
+
+export async function POST(req: Request) {
+  let body: { queries?: unknown };
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json(
+      { error: "Body JSON non valido." },
+      { status: 400 },
+    );
+  }
+
+  const raw = body.queries;
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return NextResponse.json(
+      { error: "Parametro richiesto: queries (array non vuoto)." },
+      { status: 400 },
+    );
+  }
+  if (raw.length > 50) {
+    return NextResponse.json(
+      { error: "Massimo 50 query per richiesta." },
+      { status: 400 },
+    );
+  }
+
+  const queries = raw.map((q) => String(q).trim()).filter(Boolean);
+  const results = await geocodeMany(queries);
+  return NextResponse.json({ results }, { headers: CACHE_HEADERS });
 }
