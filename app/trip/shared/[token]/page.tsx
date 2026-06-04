@@ -17,7 +17,6 @@ import {
 import { createSupabaseBrowserClient } from "../../../../lib/supabase/client";
 import type { WeatherInfo } from "../../../../lib/weather";
 import { useActivityImages } from "../../../../lib/use-activity-images";
-import { usePlaceRatings } from "../../../../lib/use-place-ratings";
 import { buildMapsSearchUrl, buildMapsUrl } from "../../../../lib/maps";
 import {
   migrateTripAccommodations,
@@ -156,11 +155,6 @@ export default function SharedTripPage({
       void updateSharedTrip(normalized);
     },
     [],
-  );
-
-  const { ratingForActivity } = usePlaceRatings(
-    trip ?? undefined,
-    permission === "write" ? commit : undefined,
   );
 
   const handleChangeDays = useCallback(
@@ -320,7 +314,6 @@ export default function SharedTripPage({
           trip={trip}
           onTripGeoSaved={permission === "write" ? commit : undefined}
           focusTarget={mapFocus}
-          ratingForActivity={ratingForActivity}
         />
 
         {/* Timeline */}
@@ -332,7 +325,6 @@ export default function SharedTripPage({
           accommodations={trip.accommodations ?? []}
           onChangeDays={permission === "write" ? handleChangeDays : undefined}
           onActivityShowOnMap={focusActivityOnMap}
-          ratingForActivity={ratingForActivity}
         />
       </main>
 

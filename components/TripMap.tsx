@@ -9,8 +9,7 @@ import {
   Polyline,
   useMap,
 } from "@vis.gl/react-google-maps";
-import PlaceRatingBadge from "./PlaceRatingBadge";
-import type { GooglePlaceRating, Trip } from "../types";
+import type { Trip } from "../types";
 import {
   buildTripMapCacheKey,
   getTripMapCache,
@@ -46,8 +45,6 @@ interface TripMapProps {
   onTripGeoSaved?: (trip: Trip) => void;
   /** Expands map, scrolls into view, closes any open popup, then opens this activity. */
   focusTarget?: MapFocusTarget | null;
-  /** Live Google ratings (same source as activity cards). */
-  ratingForActivity?: (activityId: string) => GooglePlaceRating | undefined;
 }
 
 const DAY_COLORS = [
@@ -102,10 +99,7 @@ function PopupShell({
   );
 }
 
-function buildPopupContent(
-  p: MapPoint,
-  ratingForActivity?: (activityId: string) => GooglePlaceRating | undefined,
-): React.ReactNode {
+function buildPopupContent(p: MapPoint): React.ReactNode {
   if (p.kind === "accommodation") {
     return (
       <div className="flex flex-col gap-2 font-sans text-slate-900">
@@ -116,8 +110,6 @@ function buildPopupContent(
       </div>
     );
   }
-  const placeRating = ratingForActivity?.(p.activityId) ?? p.placeRating;
-
   return (
     <div className="flex flex-col gap-2 font-sans text-slate-900">
       <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
@@ -133,9 +125,6 @@ function buildPopupContent(
         ) : null}
         {p.location}
       </p>
-      {placeRating ? (
-        <PlaceRatingBadge rating={placeRating} variant="google" />
-      ) : null}
       {p.description ? (
         <p className="border-t border-slate-200/80 pt-2 text-xs leading-relaxed text-slate-700">
           {p.description}
@@ -269,14 +258,12 @@ function TripMapGoogle({
   selectedDay,
   infoPoint,
   onInfoPointChange,
-  ratingForActivity,
 }: {
   activities: ActivityPoint[];
   accommodationPoints: AccommodationPoint[];
   selectedDay: number | null;
   infoPoint: MapPoint | null;
   onInfoPointChange: (point: MapPoint | null) => void;
-  ratingForActivity?: (activityId: string) => GooglePlaceRating | undefined;
 }) {
 
   const visible = useMemo(
@@ -397,7 +384,7 @@ function TripMapGoogle({
           onCloseClick={closePopup}
         >
           <PopupShell onClose={closePopup}>
-            {buildPopupContent(infoPoint, ratingForActivity)}
+            {buildPopupContent(infoPoint)}
           </PopupShell>
         </InfoWindow>
       ) : null}
@@ -409,7 +396,6 @@ const TripMap = ({
   trip,
   onTripGeoSaved,
   focusTarget = null,
-  ratingForActivity,
 }: TripMapProps) => {
   const [expanded, setExpanded] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -715,7 +701,6 @@ const TripMap = ({
                     selectedDay={selectedDay}
                     infoPoint={infoPoint}
                     onInfoPointChange={setInfoPoint}
-                    ratingForActivity={ratingForActivity}
                   />
                 </APIProvider>
               </div>

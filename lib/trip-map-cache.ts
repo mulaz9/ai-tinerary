@@ -1,6 +1,6 @@
 "use client";
 
-import type { GooglePlaceRating, Trip } from "../types";
+import type { Trip } from "../types";
 
 /**
  * Trip-level map geocoding cache.
@@ -25,7 +25,6 @@ export interface CachedActivityPoint {
   location: string;
   point: CachedLatLon;
   mapsUrl?: string;
-  placeRating?: GooglePlaceRating;
 }
 
 export interface CachedAccommodationPoint {

@@ -51,7 +51,6 @@ export function mapPointsFromTrip(trip: Trip): {
         location: a.location,
         point: { lat: a.geo!.lat, lon: a.geo!.lon },
         mapsUrl: a.mapsUrl,
-        placeRating: a.placeRating,
       });
     });
   });
@@ -192,7 +191,6 @@ export async function resolveTripMapPoints(
           location: a.location,
           point: { lat: a.geo!.lat, lon: a.geo!.lon },
           mapsUrl: a.mapsUrl,
-          placeRating: a.placeRating,
         });
         return;
       }
@@ -255,7 +253,6 @@ export async function resolveTripMapPoints(
           location: a.location,
           point: c,
           mapsUrl: a.mapsUrl,
-          placeRating: a.placeRating,
         });
       } else {
         accommodations.push({

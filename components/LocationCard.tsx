@@ -1,8 +1,6 @@
 import SafeImage from "./SafeImage";
 import MapEmbed from "./MapEmbed";
-import PlaceRatingBadge from "./PlaceRatingBadge";
 import TransportInfo from "./TransportInfo";
-import type { GooglePlaceRating } from "../types";
 
 interface LocationCardProps {
   title: string;
@@ -23,7 +21,6 @@ interface LocationCardProps {
    *  time badge becomes a clickable button and a small clock action appears
    *  in the top-right corner. */
   onEditTime?: () => void;
-  placeRating?: GooglePlaceRating;
 }
 
 export default function LocationCard({
@@ -40,7 +37,6 @@ export default function LocationCard({
   onToggle,
   onRemove,
   onEditTime,
-  placeRating,
 }: LocationCardProps) {
   return (
     <div
@@ -246,7 +242,6 @@ export default function LocationCard({
                     {location}
                   </span>
                   {meta}
-                  <PlaceRatingBadge rating={placeRating} />
                   <MapEmbed mapsUrl={mapsUrl} onShowOnMap={onShowOnMap} />
                 </div>
 

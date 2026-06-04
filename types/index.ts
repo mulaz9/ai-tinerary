@@ -34,14 +34,6 @@ export interface PlaceGeo {
   queryKey: string;
 }
 
-/** Google Maps / Places rating for a venue. */
-export interface GooglePlaceRating {
-  rating: number;
-  reviewCount: number;
-  /** Normalized search query — stale when location changes. */
-  queryKey: string;
-}
-
 export interface Accommodation {
   /** Stable id within a trip (e.g. `acc-1`). */
   id: string;
@@ -76,7 +68,6 @@ export interface Activity {
   mapsUrl?: string;
   transport?: TransportInfo;
   geo?: PlaceGeo;
-  placeRating?: GooglePlaceRating;
 }
 
 export interface TransportInfo {

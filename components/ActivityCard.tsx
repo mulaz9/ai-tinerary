@@ -1,4 +1,4 @@
-import { Activity, type GooglePlaceRating } from "../types";
+import { Activity } from "../types";
 import LocationCard from "./LocationCard";
 
 interface ActivityCardProps {
@@ -10,7 +10,6 @@ interface ActivityCardProps {
   onEditTime?: () => void;
   /** Scrolls to the trip map and highlights this activity. */
   onShowOnMap?: () => void;
-  placeRating?: GooglePlaceRating;
 }
 
 const ActivityCard = ({
@@ -20,7 +19,6 @@ const ActivityCard = ({
   onRemove,
   onEditTime,
   onShowOnMap,
-  placeRating,
 }: ActivityCardProps) => {
   return (
     <LocationCard
@@ -31,7 +29,6 @@ const ActivityCard = ({
       photoUrl={activity.photoUrl}
       mapsUrl={activity.mapsUrl}
       onShowOnMap={onShowOnMap}
-      placeRating={placeRating ?? activity.placeRating}
       transport={activity.transport}
       checked={checked}
       onToggle={onToggle}

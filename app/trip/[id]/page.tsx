@@ -11,7 +11,6 @@ import TripMap, { type MapFocusTarget } from "../../../components/TripMap";
 import { updateUserTrip, useAllTrips } from "../../../lib/trips-store";
 import type { WeatherInfo } from "../../../lib/weather";
 import { useActivityImages } from "../../../lib/use-activity-images";
-import { usePlaceRatings } from "../../../lib/use-place-ratings";
 import { buildMapsSearchUrl, buildMapsUrl } from "../../../lib/maps";
 import {
   migrateTripAccommodations,
@@ -113,8 +112,6 @@ export default function TripDetails({
     setTrip(normalized);
     updateUserTrip(normalized);
   }, []);
-
-  const { ratingForActivity } = usePlaceRatings(trip, commit);
 
   const handleChangeDays = useCallback(
     (nextDays: Day[]) => {
@@ -287,7 +284,6 @@ export default function TripDetails({
           trip={trip}
           onTripGeoSaved={commit}
           focusTarget={mapFocus}
-          ratingForActivity={ratingForActivity}
         />
 
         {/* ── Timeline ──────────────────────────────────────────────────── */}
@@ -299,7 +295,6 @@ export default function TripDetails({
           accommodations={trip.accommodations ?? []}
           onChangeDays={handleChangeDays}
           onActivityShowOnMap={focusActivityOnMap}
-          ratingForActivity={ratingForActivity}
         />
       </main>
 

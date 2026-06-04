@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { Accommodation, Activity, Day, GooglePlaceRating } from "../types";
+import type { Accommodation, Activity, Day } from "../types";
 import type { WeatherInfo } from "../lib/weather";
 import ActivityCard from "./ActivityCard";
 import WeatherBadge from "./WeatherBadge";
@@ -27,7 +27,6 @@ interface DayTimelineProps {
   onChangeDays?: (nextDays: Day[]) => void;
   /** Scrolls to the trip map and opens the marker for this activity. */
   onActivityShowOnMap?: (activityId: string) => void;
-  ratingForActivity?: (activityId: string) => GooglePlaceRating | undefined;
 }
 
 const DayTimeline = ({
@@ -38,7 +37,6 @@ const DayTimeline = ({
   accommodations = [],
   onChangeDays,
   onActivityShowOnMap,
-  ratingForActivity,
 }: DayTimelineProps) => {
   /**
    * Resolves the accommodation a day is associated to: explicit
@@ -359,7 +357,6 @@ const DayTimeline = ({
                                   ? () => onActivityShowOnMap(activity.id)
                                   : undefined
                               }
-                              placeRating={ratingForActivity?.(activity.id)}
                             />
                           );
                         })}
