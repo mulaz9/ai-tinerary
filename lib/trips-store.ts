@@ -24,6 +24,13 @@ import { migrateTripAccommodations } from "./trip-accommodations";
 const LEGACY_STORAGE_KEY = "ai-tinerary.user-trips.v1";
 const EVENT_NAME = "ai-tinerary:user-trips-changed";
 
+/**
+ * Maximum number of trips a user can save, for both guests (localStorage)
+ * and authenticated users (Supabase). Generating/saving beyond this is
+ * blocked client-side with an error message.
+ */
+export const MAX_USER_TRIPS = 5;
+
 let cache: Trip[] = [];
 // Updated by the hook. Mutation functions consult it to decide whether
 // to also upsert into Supabase.
@@ -157,13 +164,33 @@ export function loadUserTrips(): Trip[] {
   return cache.length ? cache : readLocal();
 }
 
-export function addUserTrip(trip: Trip): void {
+/** Current number of saved trips (from the in-memory cache / localStorage). */
+export function getUserTripCount(): number {
+  return (cache.length ? cache : readLocal()).length;
+}
+
+/** Whether another *new* trip can be saved without hitting the limit. */
+export function canAddUserTrip(): boolean {
+  return getUserTripCount() < MAX_USER_TRIPS;
+}
+
+/**
+ * Adds a new trip (or updates an existing one by id). Returns `false` when
+ * the trip is new and the {@link MAX_USER_TRIPS} limit has been reached, so
+ * call sites can surface an error. Updates to existing trips always succeed.
+ */
+export function addUserTrip(trip: Trip): boolean {
+  const isExisting = cache.some((t) => t.id === trip.id);
+  if (!isExisting && cache.length >= MAX_USER_TRIPS) {
+    return false;
+  }
   upsertIntoCache(trip, { moveToTop: true });
   if (authedUserId) {
     void persistTrip(trip, authedUserId);
   } else {
     writeLocal(cache);
   }
+  return true;
 }
 
 export function updateUserTrip(trip: Trip): void {

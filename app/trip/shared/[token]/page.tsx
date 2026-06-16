@@ -3,6 +3,7 @@
 import { use, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import Sidebar from "../../../../components/Sidebar";
 import DayTimeline from "../../../../components/DayTimeline";
 import SafeImage from "../../../../components/SafeImage";
@@ -51,6 +52,8 @@ export default function SharedTripPage({
 }) {
   const { token } = use(params);
   const router = useRouter();
+  const t = useTranslations("trip");
+  const tCommon = useTranslations("common");
 
   const [trip, setTrip] = useState<Trip | null>(null);
   const [permission, setPermission] = useState<SharePermission>("read");
@@ -78,7 +81,7 @@ export default function SharedTripPage({
     async function load() {
       const supabase = createSupabaseBrowserClient();
       if (!supabase) {
-        setError("Supabase non configurato.");
+        setError(t("supabaseNotConfigured"));
         setLoading(false);
         return;
       }
@@ -96,7 +99,7 @@ export default function SharedTripPage({
       const resolved = await resolveShareToken(token);
       if (!resolved) {
         if (!cancelled) {
-          setError("Link di condivisione non valido o revocato.");
+          setError(t("invalidShareLink"));
           setLoading(false);
         }
         return;
@@ -109,7 +112,7 @@ export default function SharedTripPage({
         if (tripData) {
           setTrip(tripData);
         } else {
-          setError("Impossibile caricare il viaggio condiviso.");
+          setError(t("cannotLoadShared"));
         }
         setLoading(false);
       }
@@ -119,7 +122,7 @@ export default function SharedTripPage({
     return () => {
       cancelled = true;
     };
-  }, [token, router]);
+  }, [token, router, t]);
 
   // Weather fetch
   const datesKey = useMemo(
@@ -168,7 +171,7 @@ export default function SharedTripPage({
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#121212] text-white/50">
-        <p className="text-sm">Caricamento viaggio condiviso…</p>
+        <p className="text-sm">{t("loadingShared")}</p>
       </div>
     );
   }
@@ -178,13 +181,13 @@ export default function SharedTripPage({
       <div className="flex min-h-screen items-center justify-center bg-[#121212] text-white">
         <div className="text-center">
           <p className="text-sm text-white/50">
-            {error ?? "Viaggio non trovato."}
+            {error ?? t("notFound")}
           </p>
           <Link
             href="/"
             className="mt-4 inline-flex rounded-xl bg-white px-4 py-2 text-sm font-semibold text-gray-900 transition hover:bg-white/90"
           >
-            Torna alla home
+            {tCommon("backHome")}
           </Link>
         </div>
       </div>
@@ -224,7 +227,7 @@ export default function SharedTripPage({
                   {country ? (
                     <span
                       className="text-3xl leading-none drop-shadow sm:text-4xl"
-                      aria-label={`Bandiera ${country.code}`}
+                      aria-label={country.code}
                       title={country.code}
                     >
                       {country.flag}
@@ -257,7 +260,8 @@ export default function SharedTripPage({
               {trip.startDate} → {trip.endDate}
             </span>
             <span className="inline-flex items-center gap-1 rounded-full border border-white/[0.06] bg-white/[0.03] px-3 py-1.5">
-              {trip.days.length} giorni · {totalActivities} attività
+              {tCommon("daysCount", { count: trip.days.length })} ·{" "}
+              {tCommon("activitiesCount", { count: totalActivities })}
             </span>
             {(trip.accommodations ?? []).map((acc) => (
               <a
@@ -266,7 +270,7 @@ export default function SharedTripPage({
                 target="_blank"
                 rel="noreferrer"
                 className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/20 bg-emerald-500/10 px-3 py-1.5 text-emerald-200 transition hover:bg-emerald-500/20"
-                title="Apri su Google Maps"
+                title={tCommon("openInGoogleMaps")}
               >
                 <span aria-hidden>🏨</span>
                 {acc.name}
@@ -279,8 +283,8 @@ export default function SharedTripPage({
                 className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-white/15 bg-white/[0.02] px-3 py-1.5 text-white/60 transition hover:border-emerald-400/30 hover:bg-emerald-500/5 hover:text-emerald-200"
                 title={
                   trip.accommodations?.length
-                    ? "Gestisci alloggi"
-                    : "Aggiungi alloggio"
+                    ? tCommon("manageAccommodations")
+                    : tCommon("addAccommodation")
                 }
               >
                 <svg
@@ -298,13 +302,17 @@ export default function SharedTripPage({
                   <path d="M5 12h14" />
                 </svg>
                 {trip.accommodations?.length
-                  ? "Gestisci alloggi"
-                  : "Aggiungi alloggio"}
+                  ? tCommon("manageAccommodations")
+                  : tCommon("addAccommodation")}
               </button>
             ) : null}
             <span className="inline-flex items-center gap-1 rounded-full border border-blue-400/20 bg-blue-500/10 px-3 py-1.5 text-blue-300">
-              Condiviso ·{" "}
-              {permission === "read" ? "sola lettura" : "lettura e scrittura"}
+              {t("shared", {
+                permission:
+                  permission === "read"
+                    ? t("permissionRead")
+                    : t("permissionWrite"),
+              })}
             </span>
           </div>
         </div>

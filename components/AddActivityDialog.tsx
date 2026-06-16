@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useLocale, useTranslations } from "next-intl";
 import type { Activity, TransportInfo } from "../types";
 import { buildMapsUrl } from "../lib/maps";
 import { buildTimeRange, suggestNextStartTime } from "../lib/activity-time";
+import { isDuplicateActivity } from "../lib/activity-dedup";
 
 interface AddActivityDialogProps {
   open: boolean;
@@ -16,6 +18,8 @@ interface AddActivityDialogProps {
   dayDate?: string;
   /** Existing activities of the day, used to suggest a sensible default time. */
   existingActivities: Activity[];
+  /** All activities in the trip — used to block duplicate POIs. */
+  tripActivities?: Activity[];
   /** ID of the day, used to derive a stable activity id. */
   dayId: string;
   onAdd: (activity: Activity) => void;
@@ -33,16 +37,6 @@ const TRANSPORT_OPTIONS: TransportInfo["mode"][] = [
   "taxi",
 ];
 
-const TRANSPORT_LABELS: Record<TransportInfo["mode"], string> = {
-  walk: "A piedi",
-  metro: "Metro",
-  bus: "Bus",
-  tram: "Tram",
-  train: "Treno",
-  ferry: "Traghetto",
-  taxi: "Taxi",
-};
-
 function newActivityId(dayId: string): string {
   return `${dayId}-a-${Date.now().toString(36)}-${Math.random()
     .toString(36)
@@ -56,9 +50,15 @@ export default function AddActivityDialog({
   accommodation,
   dayDate,
   existingActivities,
+  tripActivities,
   dayId,
   onAdd,
 }: AddActivityDialogProps) {
+  const t = useTranslations("addActivity");
+  const tCommon = useTranslations("common");
+  const tErr = useTranslations("aiErrors");
+  const tTransport = useTranslations("transport");
+  const locale = useLocale();
   const [mode, setMode] = useState<Mode>("manual");
   const [poi, setPoi] = useState("");
   const [title, setTitle] = useState("");
@@ -104,19 +104,29 @@ export default function AddActivityDialog({
 
   if (!open) return null;
 
+  const dedupPool = tripActivities ?? existingActivities;
+
+  const rejectDuplicate = (candidate: { title: string; location: string }) => {
+    if (isDuplicateActivity(candidate, dedupPool)) {
+      setError(t("errorDuplicate"));
+      return true;
+    }
+    return false;
+  };
+
   const handleManualSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     if (!title.trim()) {
-      setError("Inserisci un titolo per l'attività.");
+      setError(t("errorNoTitle"));
       return;
     }
     if (!location.trim()) {
-      setError("Inserisci una località o un punto di interesse.");
+      setError(t("errorNoLocation"));
       return;
     }
     if (!startTime) {
-      setError("Inserisci un orario di inizio.");
+      setError(t("errorNoStartTime"));
       return;
     }
     const newActivity: Activity = {
@@ -132,9 +142,10 @@ export default function AddActivityDialog({
       }),
       transport: {
         mode: transportMode,
-        summary: transportSummary.trim() || TRANSPORT_LABELS[transportMode],
+        summary: transportSummary.trim() || tTransport(transportMode),
       },
     };
+    if (rejectDuplicate(newActivity)) return;
     onAdd(newActivity);
     onClose();
   };
@@ -144,11 +155,11 @@ export default function AddActivityDialog({
     setError(null);
     setInfo(null);
     if (!poi.trim()) {
-      setError("Inserisci un luogo o un punto di interesse.");
+      setError(t("errorNoPoi"));
       return;
     }
     if (!startTime) {
-      setError("Inserisci un orario di inizio.");
+      setError(t("errorNoStartTime"));
       return;
     }
     setLoading(true);
@@ -164,31 +175,35 @@ export default function AddActivityDialog({
           startTime,
           durationMins,
           notes: notes.trim() || undefined,
+          language: locale,
+          existingActivities: dedupPool.map((a) => ({
+            title: a.title,
+            location: a.location,
+          })),
         }),
       });
       const data = (await res.json()) as {
         activity?: Omit<Activity, "id">;
-        provider?: "gemini" | "groq";
+        provider?: string;
+        providerLabel?: string;
         error?: string;
         code?: string;
         retryAfterSec?: number;
       };
       if (!res.ok || !data.activity) {
-        const prov =
-          data.provider === "groq"
-            ? "Groq"
-            : data.provider === "gemini"
-              ? "Gemini"
-              : "il provider AI";
-        let msg = data.error || `Errore server (${res.status})`;
+        const prov = data.providerLabel ?? tErr("provider");
+        let msg = data.error || tCommon("serverError", { status: res.status });
         if (data.code === "rate_limit") {
-          msg = `Limite richieste ${prov} raggiunto.${
-            data.retryAfterSec ? ` Riprova tra ~${data.retryAfterSec}s.` : ""
-          }`;
+          const wait = data.retryAfterSec
+            ? tErr("retryIn", { sec: data.retryAfterSec })
+            : "";
+          msg = tErr("rateLimit", { provider: prov, wait });
+        } else if (data.code === "bad_request") {
+          msg = t("errorDuplicate");
         } else if (data.code === "auth") {
-          msg = `Chiave API di ${prov} non valida o scaduta.`;
+          msg = tErr("authShort", { provider: prov });
         } else if (data.code === "no_provider") {
-          msg = "Nessun provider AI configurato.";
+          msg = tErr("noProviderShort");
         }
         throw new Error(msg);
       }
@@ -202,10 +217,11 @@ export default function AddActivityDialog({
         id: newActivityId(dayId),
         time: finalTime,
       };
+      if (rejectDuplicate(newActivity)) return;
       onAdd(newActivity);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Errore sconosciuto.");
+      setError(err instanceof Error ? err.message : tCommon("unknownError"));
     } finally {
       setLoading(false);
     }
@@ -219,7 +235,7 @@ export default function AddActivityDialog({
     >
       <button
         type="button"
-        aria-label="Chiudi"
+        aria-label={tCommon("close")}
         className="absolute inset-0 bg-black/70 backdrop-blur-sm"
         onClick={() => !loading && onClose()}
       />
@@ -231,10 +247,10 @@ export default function AddActivityDialog({
         <div className="flex items-center justify-between border-b border-white/5 px-5 py-4">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-widest text-emerald-400/70">
-              Aggiungi attività
+              {t("kicker")}
             </p>
             <h2 className="mt-0.5 text-lg font-bold text-white">
-              {mode === "manual" ? "Inserimento manuale" : "Genera con AI"}
+              {mode === "manual" ? t("manualTitle") : t("aiTitle")}
             </h2>
           </div>
           <button
@@ -242,7 +258,7 @@ export default function AddActivityDialog({
             onClick={onClose}
             disabled={loading}
             className="rounded-lg p-2 text-white/50 transition hover:bg-white/5 hover:text-white disabled:opacity-40"
-            aria-label="Chiudi"
+            aria-label={tCommon("close")}
           >
             ✕
           </button>
@@ -260,7 +276,7 @@ export default function AddActivityDialog({
                   : "text-white/50 hover:text-white/80"
               }`}
             >
-              Manuale
+              {t("tabManual")}
             </button>
             <button
               type="button"
@@ -272,13 +288,11 @@ export default function AddActivityDialog({
                   : "text-white/50 hover:text-white/80"
               }`}
             >
-              ✨ AI
+              {t("tabAI")}
             </button>
           </div>
           <p className="mt-2 pb-3 text-[11px] text-white/40">
-            {mode === "manual"
-              ? "Inserisci tu i dettagli dell'attività."
-              : "Indica un luogo o POI: l'AI compila titolo, descrizione e trasporto."}
+            {mode === "manual" ? t("manualHint") : t("aiHint")}
           </p>
         </div>
 
@@ -286,34 +300,33 @@ export default function AddActivityDialog({
           {mode === "ai" ? (
             <div>
               <label className="block text-[11px] font-medium uppercase tracking-wide text-white/50">
-                Luogo / punto di interesse
+                {t("poi")}
               </label>
               <input
                 ref={firstFieldRef}
                 type="text"
                 value={poi}
                 onChange={(e) => setPoi(e.target.value)}
-                placeholder="Es. Pantheon, Teatro Marittimo, Mercato di Testaccio…"
+                placeholder={t("poiPlaceholder")}
                 className="mt-1.5 w-full rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5 text-sm text-white placeholder-white/30 outline-none transition focus:border-emerald-400/40 focus:bg-white/[0.04]"
                 disabled={loading}
               />
               <p className="mt-1.5 text-[11px] text-white/35">
-                Nome del POI, monumento o quartiere. L&apos;AI userà il
-                contesto del viaggio ({destination}) per geolocalizzarlo.
+                {t("poiHint", { destination })}
               </p>
             </div>
           ) : (
             <>
               <div>
                 <label className="block text-[11px] font-medium uppercase tracking-wide text-white/50">
-                  Titolo
+                  {t("titleLabel")}
                 </label>
                 <input
                   ref={firstFieldRef}
                   type="text"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  placeholder="Es. Visita al Colosseo"
+                  placeholder={t("titlePlaceholder")}
                   className="mt-1.5 w-full rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5 text-sm text-white placeholder-white/30 outline-none transition focus:border-emerald-400/40 focus:bg-white/[0.04]"
                   disabled={loading}
                 />
@@ -321,13 +334,13 @@ export default function AddActivityDialog({
 
               <div>
                 <label className="block text-[11px] font-medium uppercase tracking-wide text-white/50">
-                  Località / POI
+                  {t("locationLabel")}
                 </label>
                 <input
                   type="text"
                   value={location}
                   onChange={(e) => setLocation(e.target.value)}
-                  placeholder={`Es. Colosseo, ${destination}`}
+                  placeholder={t("locationPlaceholder", { destination })}
                   className="mt-1.5 w-full rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5 text-sm text-white placeholder-white/30 outline-none transition focus:border-emerald-400/40 focus:bg-white/[0.04]"
                   disabled={loading}
                 />
@@ -335,13 +348,13 @@ export default function AddActivityDialog({
 
               <div>
                 <label className="block text-[11px] font-medium uppercase tracking-wide text-white/50">
-                  Descrizione
+                  {t("descriptionLabel")}
                 </label>
                 <textarea
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   rows={2}
-                  placeholder="Cosa fare in questa tappa?"
+                  placeholder={t("descriptionPlaceholder")}
                   className="mt-1.5 w-full resize-none rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5 text-sm text-white placeholder-white/30 outline-none transition focus:border-emerald-400/40 focus:bg-white/[0.04]"
                   disabled={loading}
                 />
@@ -349,7 +362,7 @@ export default function AddActivityDialog({
 
               <div>
                 <label className="block text-[11px] font-medium uppercase tracking-wide text-white/50">
-                  Trasporto
+                  {t("transportLabel")}
                 </label>
                 <div className="mt-1.5 grid grid-cols-2 gap-2 sm:grid-cols-[140px_1fr]">
                   <select
@@ -362,7 +375,7 @@ export default function AddActivityDialog({
                   >
                     {TRANSPORT_OPTIONS.map((m) => (
                       <option key={m} value={m} className="bg-[#1a1a1a]">
-                        {TRANSPORT_LABELS[m]}
+                        {tTransport(m)}
                       </option>
                     ))}
                   </select>
@@ -370,7 +383,7 @@ export default function AddActivityDialog({
                     type="text"
                     value={transportSummary}
                     onChange={(e) => setTransportSummary(e.target.value)}
-                    placeholder="Es. 10 min a piedi dall'hotel"
+                    placeholder={t("transportSummaryPlaceholder")}
                     className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5 text-sm text-white placeholder-white/30 outline-none transition focus:border-emerald-400/40 focus:bg-white/[0.04]"
                     disabled={loading}
                   />
@@ -382,7 +395,7 @@ export default function AddActivityDialog({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-[11px] font-medium uppercase tracking-wide text-white/50">
-                Inizio
+                {t("start")}
               </label>
               <input
                 type="time"
@@ -394,7 +407,7 @@ export default function AddActivityDialog({
             </div>
             <div>
               <label className="block text-[11px] font-medium uppercase tracking-wide text-white/50">
-                Durata (min)
+                {t("durationMin")}
               </label>
               <input
                 type="number"
@@ -414,13 +427,13 @@ export default function AddActivityDialog({
           {mode === "ai" ? (
             <div>
               <label className="block text-[11px] font-medium uppercase tracking-wide text-white/50">
-                Note (opzionale)
+                {t("notes")}
               </label>
               <textarea
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 rows={2}
-                placeholder="Es. visita guidata, foto al tramonto, evita la folla…"
+                placeholder={t("notesPlaceholder")}
                 className="mt-1.5 w-full resize-none rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5 text-sm text-white placeholder-white/30 outline-none transition focus:border-emerald-400/40 focus:bg-white/[0.04]"
                 disabled={loading}
               />
@@ -446,7 +459,7 @@ export default function AddActivityDialog({
             disabled={loading}
             className="rounded-xl px-3.5 py-2 text-sm font-medium text-white/70 transition hover:bg-white/5 hover:text-white disabled:opacity-40"
           >
-            Annulla
+            {tCommon("cancel")}
           </button>
           <button
             type="submit"
@@ -456,12 +469,12 @@ export default function AddActivityDialog({
             {loading ? (
               <>
                 <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-emerald-950/30 border-t-emerald-950" />
-                Genero…
+                {tCommon("generating")}
               </>
             ) : mode === "manual" ? (
-              "Aggiungi"
+              tCommon("add")
             ) : (
-              "Genera con AI"
+              tCommon("generateWithAI")
             )}
           </button>
         </div>

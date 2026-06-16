@@ -1,55 +1,33 @@
 import { NextResponse } from "next/server";
-import {
-  generateTrip,
-  GenerateTripInput,
-  AIError,
-  providerLabel,
-} from "../../../lib/ai";
+import { translateTrip, AIError, providerLabel } from "../../../lib/ai";
+import type { Trip } from "../../../types";
 
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
-  let body: Partial<GenerateTripInput>;
+  let body: { trip?: Trip; targetLang?: string };
   try {
-    body = (await req.json()) as Partial<GenerateTripInput>;
+    body = (await req.json()) as { trip?: Trip; targetLang?: string };
   } catch {
     return NextResponse.json({ error: "Body JSON non valido." }, { status: 400 });
   }
 
-  const destination = body.destination?.trim();
-  const arrival = body.arrival?.trim();
-  const departure = body.departure?.trim();
-  const notes = body.notes?.trim() || undefined;
-  const language = body.language?.trim() || undefined;
-  const accommodation = body.accommodation?.trim() || undefined;
-  const accommodations = Array.isArray(body.accommodations)
-    ? body.accommodations
-        .map((a) => (typeof a === "string" ? a.trim() : ""))
-        .filter((a): a is string => a.length > 0)
-    : undefined;
+  const trip = body.trip;
+  const targetLang = body.targetLang?.trim();
 
-  if (!destination || !arrival || !departure) {
+  if (!trip || !Array.isArray(trip.days) || !targetLang) {
     return NextResponse.json(
-      { error: "Campi obbligatori: destination, arrival, departure." },
+      { error: "Campi obbligatori: trip, targetLang." },
       { status: 400 },
     );
   }
 
   try {
-    const { trip, provider, fellBack } = await generateTrip({
-      destination,
-      arrival,
-      departure,
-      notes,
-      language,
-      accommodation,
-      accommodations,
-    });
+    const { trip: translated, provider } = await translateTrip(trip, targetLang);
     return NextResponse.json({
-      trip,
+      trip: translated,
       provider,
       providerLabel: providerLabel(provider),
-      fellBack,
     });
   } catch (err) {
     if (err instanceof AIError) {

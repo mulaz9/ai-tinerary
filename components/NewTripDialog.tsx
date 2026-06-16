@@ -1,8 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useLocale, useTranslations } from "next-intl";
 import { Trip } from "../types";
-import { addUserTrip } from "../lib/trips-store";
+import { addUserTrip, MAX_USER_TRIPS, useAllTrips } from "../lib/trips-store";
+import VoiceTripFormAssist, {
+  type VoiceTripFormFields,
+} from "./VoiceTripFormAssist";
 
 interface NewTripDialogProps {
   open: boolean;
@@ -32,6 +36,11 @@ function toDateTimeLocal(d: Date): string {
 }
 
 const NewTripDialog = ({ open, onClose, onCreated }: NewTripDialogProps) => {
+  const t = useTranslations("newTrip");
+  const tErr = useTranslations("aiErrors");
+  const tCommon = useTranslations("common");
+  const locale = useLocale();
+  const LIMIT_MESSAGE = t("limitReached", { max: MAX_USER_TRIPS });
   const [destination, setDestination] = useState("");
   // One row per accommodation. We always render at least one (possibly
   // empty) input — the trip can still be created without any.
@@ -43,6 +52,13 @@ const NewTripDialog = ({ open, onClose, onCreated }: NewTripDialogProps) => {
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const firstFieldRef = useRef<HTMLInputElement>(null);
+  const { trips, hydrated } = useAllTrips();
+  const atLimit = hydrated && trips.length >= MAX_USER_TRIPS;
+
+  const closeDialog = () => {
+    (document.activeElement as HTMLElement | null)?.blur();
+    onClose();
+  };
 
   const updateAccommodation = (idx: number, value: string) =>
     setAccommodations((prev) => prev.map((a, i) => (i === idx ? value : a)));
@@ -52,6 +68,16 @@ const NewTripDialog = ({ open, onClose, onCreated }: NewTripDialogProps) => {
     setAccommodations((prev) =>
       prev.length <= 1 ? [""] : prev.filter((_, i) => i !== idx),
     );
+
+  const handleVoiceApply = (fields: VoiceTripFormFields) => {
+    if (fields.destination) setDestination(fields.destination);
+    if (fields.arrival) setArrival(fields.arrival);
+    if (fields.departure) setDeparture(fields.departure);
+    if (fields.accommodations?.length) {
+      setAccommodations(fields.accommodations);
+    }
+    if (fields.notes) setNotes(fields.notes);
+  };
 
   useEffect(() => {
     if (open) {
@@ -64,7 +90,7 @@ const NewTripDialog = ({ open, onClose, onCreated }: NewTripDialogProps) => {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !loading) onClose();
+      if (e.key === "Escape" && !loading) closeDialog();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -78,16 +104,20 @@ const NewTripDialog = ({ open, onClose, onCreated }: NewTripDialogProps) => {
     setError(null);
 
     setInfo(null);
+    if (atLimit) {
+      setError(LIMIT_MESSAGE);
+      return;
+    }
     if (!destination.trim()) {
-      setError("Inserisci una destinazione.");
+      setError(t("errorNoDestination"));
       return;
     }
     if (!arrival || !departure) {
-      setError("Inserisci data/ora di arrivo e partenza.");
+      setError(t("errorNoDates"));
       return;
     }
     if (arrival >= departure) {
-      setError("La data di arrivo deve essere precedente alla partenza.");
+      setError(t("errorDateOrder"));
       return;
     }
 
@@ -107,64 +137,64 @@ const NewTripDialog = ({ open, onClose, onCreated }: NewTripDialogProps) => {
           arrival,
           departure,
           notes: notes.trim() || undefined,
+          language: locale,
         }),
       });
 
       const data = (await res.json()) as {
         trip?: Trip;
-        provider?: "gemini" | "groq";
+        provider?: string;
+        providerLabel?: string;
         fellBack?: boolean;
         error?: string;
         code?: string;
         retryAfterSec?: number;
       };
       if (!res.ok || !data.trip) {
-        const prov =
-          data.provider === "groq"
-            ? "Groq"
-            : data.provider === "gemini"
-              ? "Gemini"
-              : "il provider AI";
-        let msg = data.error || `Errore server (${res.status})`;
+        const prov = data.providerLabel ?? tErr("provider");
+        let msg = data.error || tCommon("serverError", { status: res.status });
         if (data.code === "rate_limit") {
           const wait = data.retryAfterSec
-            ? ` Riprova tra ~${data.retryAfterSec}s.`
-            : " Aggiungi GROQ_API_KEY in .env.local per un fallback gratuito.";
-          msg = `Limite richieste ${prov} raggiunto.${wait}`;
+            ? tErr("retryIn", { sec: data.retryAfterSec })
+            : tErr("addKeyHint");
+          msg = tErr("rateLimit", { provider: prov, wait });
         } else if (data.code === "auth") {
-          msg = `Chiave API di ${prov} non valida o scaduta. Controlla GEMINI_API_KEY / GROQ_API_KEY in .env.local.`;
+          msg = tErr("auth", { provider: prov });
         } else if (data.code === "no_provider") {
-          msg =
-            "Nessun provider AI configurato. Aggiungi GEMINI_API_KEY o GROQ_API_KEY in .env.local.";
+          msg = tErr("noProvider");
         } else if (data.code === "model_not_found") {
-          msg = `${data.error ?? "Modello non disponibile."} Verifica le variabili GEMINI_MODEL / GROQ_MODEL in .env.local.`;
+          msg = tErr("modelNotFound", {
+            error: data.error ?? tErr("modelNotFoundDefault"),
+          });
         }
         throw new Error(msg);
       }
 
-      addUserTrip(data.trip);
-      onCreated?.(data.trip);
+      const saved = addUserTrip(data.trip);
+      if (!saved) {
+        setError(LIMIT_MESSAGE);
+        return;
+      }
+
+      setDestination("");
+      setAccommodations([""]);
+      setNotes("");
+
+      if (onCreated) {
+        onCreated(data.trip);
+        return;
+      }
 
       if (data.fellBack && data.provider) {
         setInfo(
-          `Itinerario generato con il fallback ${
-            data.provider === "groq" ? "Groq" : "Gemini"
-          }.`,
+          t("fellBack", { provider: data.providerLabel ?? "AI" }),
         );
-        setTimeout(() => {
-          setDestination("");
-          setAccommodations([""]);
-          setNotes("");
-          onClose();
-        }, 1200);
+        setTimeout(() => closeDialog(), 800);
       } else {
-        setDestination("");
-        setAccommodations([""]);
-        setNotes("");
-        onClose();
+        closeDialog();
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Errore sconosciuto.");
+      setError(err instanceof Error ? err.message : tCommon("unknownError"));
     } finally {
       setLoading(false);
     }
@@ -178,9 +208,9 @@ const NewTripDialog = ({ open, onClose, onCreated }: NewTripDialogProps) => {
     >
       <button
         type="button"
-        aria-label="Chiudi"
+        aria-label={tCommon("close")}
         className="absolute inset-0 bg-black/70 backdrop-blur-sm"
-        onClick={() => !loading && onClose()}
+        onClick={() => !loading && closeDialog()}
       />
 
       <form
@@ -190,34 +220,45 @@ const NewTripDialog = ({ open, onClose, onCreated }: NewTripDialogProps) => {
         <div className="flex items-center justify-between border-b border-white/5 px-5 py-4">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-widest text-emerald-400/70">
-              Nuovo viaggio
+              {t("kicker")}
             </p>
             <h2 className="mt-0.5 text-lg font-bold text-white">
-              Genera itinerario con AI
+              {t("title")}
             </h2>
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={closeDialog}
             disabled={loading}
             className="rounded-lg p-2 text-white/50 transition hover:bg-white/5 hover:text-white disabled:opacity-40"
-            aria-label="Chiudi"
+            aria-label={tCommon("close")}
           >
             ✕
           </button>
         </div>
 
         <div className="space-y-4 px-5 py-5">
+          {atLimit ? (
+            <div className="rounded-xl border border-amber-400/20 bg-amber-500/10 px-3 py-2.5 text-[13px] text-amber-200">
+              {LIMIT_MESSAGE}
+            </div>
+          ) : null}
+
+          <VoiceTripFormAssist
+            disabled={loading || atLimit}
+            onApply={handleVoiceApply}
+          />
+
           <div>
             <label className="block text-[11px] font-medium uppercase tracking-wide text-white/50">
-              Destinazione
+              {t("destination")}
             </label>
             <input
               ref={firstFieldRef}
               type="text"
               value={destination}
               onChange={(e) => setDestination(e.target.value)}
-              placeholder="Es. Lisbona, Portogallo"
+              placeholder={t("destinationPlaceholder")}
               className="mt-1.5 w-full rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5 text-sm text-white placeholder-white/30 outline-none transition focus:border-emerald-400/40 focus:bg-white/[0.04]"
               disabled={loading}
             />
@@ -225,9 +266,9 @@ const NewTripDialog = ({ open, onClose, onCreated }: NewTripDialogProps) => {
 
           <div>
             <label className="block text-[11px] font-medium uppercase tracking-wide text-white/50">
-              Alloggi{" "}
+              {t("accommodations")}{" "}
               <span className="text-white/30 normal-case tracking-normal">
-                (opzionale — hotel, airbnb, indirizzo…)
+                {t("accommodationsOptional")}
               </span>
             </label>
             <div className="mt-1.5 space-y-2">
@@ -239,8 +280,8 @@ const NewTripDialog = ({ open, onClose, onCreated }: NewTripDialogProps) => {
                     onChange={(e) => updateAccommodation(idx, e.target.value)}
                     placeholder={
                       idx === 0
-                        ? "Es. Hotel Lisboa Plaza, Av. da Liberdade"
-                        : "Es. Airbnb Alfama"
+                        ? t("firstAccommodationPlaceholder")
+                        : t("otherAccommodationPlaceholder")
                     }
                     className="w-full rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5 text-sm text-white placeholder-white/30 outline-none transition focus:border-emerald-400/40 focus:bg-white/[0.04]"
                     disabled={loading}
@@ -250,7 +291,7 @@ const NewTripDialog = ({ open, onClose, onCreated }: NewTripDialogProps) => {
                       type="button"
                       onClick={() => removeAccommodation(idx)}
                       disabled={loading}
-                      aria-label="Rimuovi alloggio"
+                      aria-label={tCommon("removeAccommodation")}
                       className="rounded-lg border border-white/10 bg-white/[0.02] px-2.5 py-2.5 text-white/40 transition hover:border-red-400/30 hover:bg-red-500/10 hover:text-red-300 disabled:opacity-40"
                     >
                       <svg
@@ -290,19 +331,18 @@ const NewTripDialog = ({ open, onClose, onCreated }: NewTripDialogProps) => {
                   <path d="M12 5v14" />
                   <path d="M5 12h14" />
                 </svg>
-                Aggiungi alloggio
+                {tCommon("addAccommodation")}
               </button>
             </div>
             <p className="mt-1.5 text-[11px] text-white/35">
-              Aggiungine quanti vuoi. Potrai assegnarli ai singoli giorni
-              dopo aver generato il viaggio.
+              {t("accommodationsHint")}
             </p>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className="block text-[11px] font-medium uppercase tracking-wide text-white/50">
-                Arrivo
+                {t("arrival")}
               </label>
               <input
                 type="datetime-local"
@@ -314,7 +354,7 @@ const NewTripDialog = ({ open, onClose, onCreated }: NewTripDialogProps) => {
             </div>
             <div>
               <label className="block text-[11px] font-medium uppercase tracking-wide text-white/50">
-                Partenza
+                {t("departure")}
               </label>
               <input
                 type="datetime-local"
@@ -328,13 +368,13 @@ const NewTripDialog = ({ open, onClose, onCreated }: NewTripDialogProps) => {
 
           <div>
             <label className="block text-[11px] font-medium uppercase tracking-wide text-white/50">
-              Note / stile di viaggio (opzionale)
+              {t("notes")}
             </label>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={3}
-              placeholder="Es. budget medio, tanto mare, cucina locale, no musei…"
+              placeholder={t("notesPlaceholder")}
               className="mt-1.5 w-full resize-none rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5 text-sm text-white placeholder-white/30 outline-none transition focus:border-emerald-400/40 focus:bg-white/[0.04]"
               disabled={loading}
             />
@@ -356,24 +396,24 @@ const NewTripDialog = ({ open, onClose, onCreated }: NewTripDialogProps) => {
         <div className="flex items-center justify-end gap-2 border-t border-white/5 bg-white/[0.02] px-5 py-3.5">
           <button
             type="button"
-            onClick={onClose}
+            onClick={closeDialog}
             disabled={loading}
             className="rounded-xl px-3.5 py-2 text-sm font-medium text-white/70 transition hover:bg-white/5 hover:text-white disabled:opacity-40"
           >
-            Annulla
+            {tCommon("cancel")}
           </button>
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || atLimit}
             className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {loading ? (
               <>
                 <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-emerald-950/30 border-t-emerald-950" />
-                Genero…
+                {tCommon("generating")}
               </>
             ) : (
-              <>Genera con AI</>
+              <>{tCommon("generateWithAI")}</>
             )}
           </button>
         </div>

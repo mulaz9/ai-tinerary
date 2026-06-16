@@ -14,6 +14,11 @@
 html,
 body {
   height: 100%;
+  overflow-x: hidden;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
@@ -23,6 +28,15 @@ body {
     Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* iOS Safari zooms focused inputs below 16px — keep forms readable without zoom. */
+@media (max-width: 1023px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
 }
 
 /* ─── Selection ────────────────────────────────────────────────────────────── */
@@ -103,37 +117,25 @@ a {
   box-shadow: 0 0 0 3px var(--accent-dim);
 }
 
-/* ─── TripMap (Google Maps) ─────────────────────────────────────────────── */
+/* ─── TripMap (MapLibre GL) ─────────────────────────────────────────────── */
 .trip-map-canvas {
   background: #e9e6df;
 }
 
-/* InfoWindow: reset Google padding; we control spacing in .trip-map-popup */
-.trip-map-canvas .gm-style-iw {
-  max-width: 288px !important;
-}
-.trip-map-canvas .gm-style-iw-c {
-  padding: 0 !important;
-  max-width: 288px !important;
-}
-.trip-map-canvas .gm-style-iw-d {
-  overflow: visible !important;
-  padding: 0 !important;
-  max-height: none !important;
-}
-/* Header row (close chrome): collapse when headerDisabled is off or ignored */
-.trip-map-canvas .gm-style-iw-chr {
-  display: none !important;
-  height: 0 !important;
-  min-height: 0 !important;
-  margin: 0 !important;
-  padding: 0 !important;
-  overflow: hidden !important;
-  visibility: hidden !important;
-}
-.trip-map-canvas .gm-style-iw-tc::after {
+/* Popup: reset MapLibre chrome; we control spacing in .trip-map-popup */
+.trip-map-canvas .maplibregl-popup-content {
+  padding: 0;
+  border-radius: 12px;
   background: #fff;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.18);
+  max-width: 288px;
+}
+.trip-map-canvas .maplibregl-popup-close-button {
+  display: none;
+}
+.trip-map-canvas .maplibregl-popup-tip {
+  border-top-color: #fff;
+  border-bottom-color: #fff;
 }
 .trip-map-popup {
   font-family: Inter, system-ui, sans-serif;

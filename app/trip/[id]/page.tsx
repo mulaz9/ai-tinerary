@@ -2,6 +2,8 @@
 
 import { use, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useLocale, useTranslations } from "next-intl";
+import { LOCALE_NAMES, normalizeLocale } from "../../../i18n/config";
 import Sidebar from "../../../components/Sidebar";
 import DayTimeline from "../../../components/DayTimeline";
 import SafeImage from "../../../components/SafeImage";
@@ -49,8 +51,11 @@ export default function TripDetails({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
+  const locale = useLocale();
+  const t = useTranslations("trip");
+  const tCommon = useTranslations("common");
   const { trips, hydrated } = useAllTrips();
-  const storedTrip = trips.find((t) => t.id === id);
+  const storedTrip = trips.find((trip) => trip.id === id);
 
   // Local, editable copy of the trip. This is what the UI renders and mutates
   // in response to remove / reorder actions. We re-sync it whenever the
@@ -121,18 +126,44 @@ export default function TripDetails({
     [trip, commit],
   );
 
+  const [translating, setTranslating] = useState(false);
+  const [translateError, setTranslateError] = useState<string | null>(null);
+
+  const handleTranslate = useCallback(async () => {
+    if (!trip || translating) return;
+    setTranslating(true);
+    setTranslateError(null);
+    try {
+      const res = await fetch("/api/translate-trip", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ trip, targetLang: locale }),
+      });
+      const data = (await res.json()) as { trip?: Trip; error?: string };
+      if (!res.ok || !data.trip) {
+        setTranslateError(data.error || t("translateError"));
+        return;
+      }
+      commit(data.trip);
+    } catch {
+      setTranslateError(t("translateError"));
+    } finally {
+      setTranslating(false);
+    }
+  }, [trip, translating, locale, commit, t]);
+
   // ── Render guards ─────────────────────────────────────────────────────
 
   if (hydrated && !trip) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#121212] text-white">
         <div className="text-center">
-          <p className="text-sm text-white/50">Viaggio non trovato.</p>
+          <p className="text-sm text-white/50">{t("notFound")}</p>
           <Link
             href="/"
             className="mt-4 inline-flex rounded-xl bg-white px-4 py-2 text-sm font-semibold text-gray-900 transition hover:bg-white/90"
           >
-            Torna alla home
+            {tCommon("backHome")}
           </Link>
         </div>
       </div>
@@ -142,7 +173,7 @@ export default function TripDetails({
   if (!trip) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#121212] text-white/50">
-        <p className="text-sm">Caricamento…</p>
+        <p className="text-sm">{tCommon("loading")}</p>
       </div>
     );
   }
@@ -154,7 +185,7 @@ export default function TripDetails({
   const country = getCountryFromLocation(trip.location);
 
   return (
-    <div className="min-h-screen bg-[#121212] text-white">
+    <div className="min-h-screen overflow-x-hidden bg-[#121212] text-white">
       <Sidebar />
 
       {/* pb-24 = clearance for mobile bottom nav */}
@@ -175,14 +206,13 @@ export default function TripDetails({
           {/* Gradient overlay for text readability */}
           <div className="absolute inset-0 bg-gradient-to-t from-[#121212] via-[#121212]/60 to-transparent" />
 
-          {/* Share button — floating in the top-right corner, same look as
-              the action buttons on the home page TripCard. */}
+          {/* Share — desktop: over cover; mobile: see action row below hero */}
           <button
             type="button"
             onClick={() => setShareDialogOpen(true)}
-            aria-label="Condividi viaggio"
-            title="Condividi viaggio"
-            className="absolute right-3 top-3 z-10 inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-black/50 text-white backdrop-blur transition hover:border-emerald-400/40 hover:bg-emerald-500/20 hover:text-emerald-200 sm:right-4 sm:top-4"
+            aria-label={t("shareTrip")}
+            title={t("shareTrip")}
+            className="absolute right-3 top-3 z-10 hidden h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-black/50 text-white backdrop-blur transition hover:border-emerald-400/40 hover:bg-emerald-500/20 hover:text-emerald-200 sm:right-4 sm:top-4 lg:inline-flex"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" />
@@ -197,7 +227,7 @@ export default function TripDetails({
               {country ? (
                 <span
                   className="text-3xl leading-none drop-shadow sm:text-4xl"
-                  aria-label={`Bandiera ${country.code}`}
+                  aria-label={country.code}
                   title={country.code}
                 >
                   {country.flag}
@@ -215,6 +245,31 @@ export default function TripDetails({
 
         {/* ── Trip info row ─────────────────────────────────────────────── */}
         <div className="mt-5 animate-fade-in-up px-1">
+          <div className="mb-3 flex flex-wrap gap-2 lg:hidden">
+            <button
+              type="button"
+              onClick={() => setShareDialogOpen(true)}
+              className="inline-flex min-h-10 items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-500/15 px-4 py-2 text-xs font-semibold text-emerald-100 transition hover:bg-emerald-500/25"
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" />
+                <polyline points="16 6 12 2 8 6" />
+                <line x1="12" y1="2" x2="12" y2="15" />
+              </svg>
+              {t("shareTrip")}
+            </button>
+          </div>
+
           <p className="max-w-2xl text-sm leading-relaxed text-white/55">
             {trip.description}
           </p>
@@ -228,7 +283,8 @@ export default function TripDetails({
               {trip.startDate} → {trip.endDate}
             </span>
             <span className="inline-flex items-center gap-1 rounded-full border border-white/[0.06] bg-white/[0.03] px-3 py-1.5">
-              {trip.days.length} giorni · {totalActivities} attività
+              {tCommon("daysCount", { count: trip.days.length })} ·{" "}
+              {tCommon("activitiesCount", { count: totalActivities })}
             </span>
             {(trip.accommodations ?? []).map((acc) => (
               <a
@@ -237,7 +293,7 @@ export default function TripDetails({
                 target="_blank"
                 rel="noreferrer"
                 className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/20 bg-emerald-500/10 px-3 py-1.5 text-emerald-200 transition hover:bg-emerald-500/20"
-                title="Apri su Google Maps"
+                title={tCommon("openInGoogleMaps")}
               >
                 <span aria-hidden>🏨</span>
                 {acc.name}
@@ -249,8 +305,8 @@ export default function TripDetails({
               className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-white/15 bg-white/[0.02] px-3 py-1.5 text-white/60 transition hover:border-emerald-400/30 hover:bg-emerald-500/5 hover:text-emerald-200"
               title={
                 trip.accommodations?.length
-                  ? "Gestisci alloggi"
-                  : "Aggiungi alloggio"
+                  ? tCommon("manageAccommodations")
+                  : tCommon("addAccommodation")
               }
             >
               <svg
@@ -268,15 +324,51 @@ export default function TripDetails({
                 <path d="M5 12h14" />
               </svg>
               {trip.accommodations?.length
-                ? "Gestisci alloggi"
-                : "Aggiungi alloggio"}
+                ? tCommon("manageAccommodations")
+                : tCommon("addAccommodation")}
             </button>
             {trip.isUserCreated ? (
               <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/20 bg-emerald-500/10 px-3 py-1.5 text-emerald-300">
-                Generato con AI
+                {t("generatedWithAI")}
               </span>
             ) : null}
+            {normalizeLocale(trip.contentLang) !== normalizeLocale(locale) ? (
+              <button
+                type="button"
+                onClick={handleTranslate}
+                disabled={translating}
+                className="inline-flex items-center gap-1.5 rounded-full border border-sky-400/20 bg-sky-500/10 px-3 py-1.5 text-sky-200 transition hover:bg-sky-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+                title={t("translate", { language: LOCALE_NAMES[normalizeLocale(locale)] })}
+              >
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="m5 8 6 6" />
+                  <path d="m4 14 6-6 2-3" />
+                  <path d="M2 5h12" />
+                  <path d="M7 2h1" />
+                  <path d="m22 22-5-10-5 10" />
+                  <path d="M14 18h6" />
+                </svg>
+                {translating
+                  ? t("translating")
+                  : t("translate", {
+                      language: LOCALE_NAMES[normalizeLocale(locale)],
+                    })}
+              </button>
+            ) : null}
           </div>
+          {translateError ? (
+            <p className="mt-2 text-xs text-red-400">{translateError}</p>
+          ) : null}
         </div>
 
         {/* ── Map ───────────────────────────────────────────────────────── */}

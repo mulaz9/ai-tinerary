@@ -24,6 +24,12 @@ export interface Trip {
   accommodations?: Accommodation[];
   days: Day[];
   isUserCreated?: boolean;
+  /**
+   * Locale (it/en/fr/es/de) the AI-generated text (name, descriptions, day
+   * titles/summaries, activity text) is currently written in. Used to offer an
+   * on-demand "translate" action when the UI language differs.
+   */
+  contentLang?: string;
 }
 
 /** Resolved map coordinates for a place name (synced in trip JSON when logged in). */

@@ -99,6 +99,20 @@ export function buildMapsDirectionsUrl(
 }
 
 /**
+ * URL for a TripAdvisor search of `location` (disambiguated with the trip
+ * destination). Used for the "Recensioni" link-out on restaurant cards: the
+ * real star rating lives on the destination page, so we never call a paid
+ * ratings API.
+ */
+export function buildReviewsUrl(
+  location: string,
+  destination?: string,
+): string {
+  const query = buildMapsQuery(location, destination);
+  return `https://www.tripadvisor.com/Search?q=${encodeURIComponent(query)}`;
+}
+
+/**
  * Convenience: pick between a search URL and a directions URL depending on
  * whether an accommodation/origin is known.
  */

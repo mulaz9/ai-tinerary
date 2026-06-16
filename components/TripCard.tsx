@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useTranslations } from "next-intl";
 import { Trip } from "../types";
 import SafeImage from "./SafeImage";
 import { removeUserTrip } from "../lib/trips-store";
@@ -13,6 +14,9 @@ interface TripProps {
 }
 
 const TripCard = ({ trip }: TripProps) => {
+  const t = useTranslations("shareDialog");
+  const tCommon = useTranslations("common");
+  const tHome = useTranslations("home");
   const totalActivities = trip.days.reduce((acc, d) => acc + d.activities.length, 0);
   const firstDay = trip.days[0];
   const country = getCountryFromLocation(trip.location);
@@ -21,7 +25,7 @@ const TripCard = ({ trip }: TripProps) => {
   const handleRemove = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    const ok = window.confirm(`Rimuovere il viaggio "${trip.name}"?`);
+    const ok = window.confirm(t("removeTripConfirm", { name: trip.name }));
     if (!ok) return;
     removeUserTrip(trip.id);
   };
@@ -40,10 +44,10 @@ const TripCard = ({ trip }: TripProps) => {
             invisible; action buttons sit above via higher z-index. */}
         <Link
           href={`/trip/${trip.id}`}
-          aria-label={`Apri ${trip.name}`}
+          aria-label={t("openTrip", { name: trip.name })}
           className="absolute inset-0 z-0 cursor-pointer rounded-2xl focus:outline-none"
         >
-          <span className="sr-only">Apri {trip.name}</span>
+          <span className="sr-only">{t("openTrip", { name: trip.name })}</span>
         </Link>
 
         {trip.isUserCreated ? (
@@ -57,8 +61,8 @@ const TripCard = ({ trip }: TripProps) => {
           <button
             type="button"
             onClick={handleShare}
-            aria-label={`Condividi ${trip.name}`}
-            title="Condividi viaggio"
+            aria-label={t("shareTripOf", { name: trip.name })}
+            title={t("shareTrip")}
             className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-black/50 text-white/80 backdrop-blur transition hover:border-emerald-400/40 hover:bg-emerald-500/20 hover:text-emerald-200"
           >
             <svg
@@ -81,8 +85,8 @@ const TripCard = ({ trip }: TripProps) => {
             <button
               type="button"
               onClick={handleRemove}
-              aria-label={`Rimuovi ${trip.name}`}
-              title="Rimuovi viaggio"
+              aria-label={t("removeTripOf", { name: trip.name })}
+              title={t("removeTripTitle")}
               className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-black/50 text-white/70 backdrop-blur transition hover:border-red-400/40 hover:bg-red-500/20 hover:text-red-200"
             >
               <svg
@@ -129,7 +133,7 @@ const TripCard = ({ trip }: TripProps) => {
             {country ? (
               <span
                 className="text-xl leading-none"
-                aria-label={`Bandiera ${country.code}`}
+                aria-label={country.code}
                 title={country.code}
               >
                 {country.flag}
@@ -153,7 +157,8 @@ const TripCard = ({ trip }: TripProps) => {
               {trip.startDate} → {trip.endDate}
             </span>
             <span>
-              {trip.days.length} giorni · {totalActivities} attività
+              {tCommon("daysCount", { count: trip.days.length })} ·{" "}
+              {tCommon("activitiesCount", { count: totalActivities })}
             </span>
           </div>
 
@@ -162,7 +167,7 @@ const TripCard = ({ trip }: TripProps) => {
             <div className="mt-4 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3.5">
               <div className="flex items-center justify-between gap-4">
                 <p className="text-sm font-semibold text-white/90">
-                  Giorno {firstDay.day}: {firstDay.title}
+                  {tHome("day", { day: firstDay.day, title: firstDay.title })}
                 </p>
                 <span className="shrink-0 text-[11px] tabular-nums text-white/35">
                   {firstDay.date}

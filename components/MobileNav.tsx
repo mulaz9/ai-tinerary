@@ -2,8 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect } from "react";
+import { useTranslations } from "next-intl";
 import { useAllTrips } from "../lib/trips-store";
 import UserMenu from "./UserMenu";
+import LanguageSwitcher from "./LanguageSwitcher";
 import { getCountryFromLocation } from "../lib/country-flag";
 
 // ── minimal inline SVG icons (no external dependency) ──────────────────────
@@ -61,6 +64,11 @@ function formatPlaceLabel(location: string): string {
 export default function MobileNav() {
   const pathname = usePathname();
   const { trips } = useAllTrips();
+  const t = useTranslations("nav");
+
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [pathname]);
 
   if (pathname === "/login") return null;
 
@@ -72,7 +80,10 @@ export default function MobileNav() {
           ai‑tinerary
         </Link>
 
-        <UserMenu variant="compact" />
+        <div className="flex items-center gap-2">
+          <LanguageSwitcher variant="compact" />
+          <UserMenu variant="compact" />
+        </div>
       </header>
 
       {/* ── Bottom nav (mobile only) ─────────────────────────────────────── */}
@@ -88,7 +99,7 @@ export default function MobileNav() {
           }`}
         >
           <IconHome active={pathname === "/"} />
-          Home
+          {t("home")}
         </Link>
 
         {/* One tab per trip */}

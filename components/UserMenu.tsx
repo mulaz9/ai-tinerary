@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 import { createSupabaseBrowserClient } from "../lib/supabase/client";
 
 interface UserInfo {
@@ -38,6 +39,7 @@ export default function UserMenu({ variant = "sidebar" }: UserMenuProps) {
   const [user, setUser] = useState<UserInfo | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const pathname = usePathname();
+  const t = useTranslations("userMenu");
 
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
@@ -72,7 +74,7 @@ export default function UserMenu({ variant = "sidebar" }: UserMenuProps) {
           className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500 px-3 py-1.5 text-[11px] font-semibold text-emerald-950 transition hover:bg-emerald-400"
         >
           <GoogleDot />
-          Accedi
+          {t("signIn")}
         </Link>
       );
     }
@@ -82,7 +84,7 @@ export default function UserMenu({ variant = "sidebar" }: UserMenuProps) {
         className="mt-6 flex items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-400"
       >
         <GoogleDot />
-        Accedi con Google
+        {t("signInWithGoogle")}
       </Link>
     );
   }
@@ -94,11 +96,11 @@ export default function UserMenu({ variant = "sidebar" }: UserMenuProps) {
       <form action="/auth/signout" method="post" className="flex items-center">
         <button
           type="submit"
-          title={user.email ?? "Esci"}
+          title={user.email ?? t("signOut")}
           className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-white/80 transition hover:bg-white/10"
         >
           <Avatar url={user.avatarUrl} initial={initial} size={20} />
-          Esci
+          {t("signOut")}
         </button>
       </form>
     );
@@ -109,7 +111,7 @@ export default function UserMenu({ variant = "sidebar" }: UserMenuProps) {
       <Avatar url={user.avatarUrl} initial={initial} size={36} />
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-semibold text-white">
-          {user.name ?? user.email ?? "Utente"}
+          {user.name ?? user.email ?? t("user")}
         </p>
         {user.name && user.email ? (
           <p className="truncate text-xs text-white/50">{user.email}</p>
@@ -120,7 +122,7 @@ export default function UserMenu({ variant = "sidebar" }: UserMenuProps) {
           type="submit"
           className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-white/80 transition hover:bg-white/10"
         >
-          Esci
+          {t("signOut")}
         </button>
       </form>
     </div>

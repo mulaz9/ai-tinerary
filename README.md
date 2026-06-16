@@ -20,9 +20,32 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 
 The "+ Nuovo viaggio" button on the home page generates a full itinerary
 from a destination and arrival/departure date-times. The backend tries
-**Google Gemini** first and automatically falls back to **Groq** if Gemini
-fails (rate-limit, auth problem, model missing, network error, …).
-Configuring at least one provider is required.
+**Google Gemini** first and automatically falls back, in order, to any other
+configured provider if Gemini fails (rate-limit, auth problem, model missing,
+network error, …). Configuring at least one provider is required.
+
+All supported providers have a free tier. Each is enabled only when its key is
+present in `.env.local`, so add as many as you want for more fallback headroom:
+
+| Provider | Env key(s) | Default model | Notes |
+| --- | --- | --- | --- |
+| Gemini | `GEMINI_API_KEY` | `gemini-2.5-flash-lite` | Primary, native JSON schema (auto-switches to `gemini-2.5-flash` under load) |
+| Groq | `GROQ_API_KEY` | `llama-3.3-70b-versatile` | Very fast |
+| Cerebras | `CEREBRAS_API_KEY` | `llama-3.3-70b` | Very fast |
+| Mistral | `MISTRAL_API_KEY` | `mistral-small-latest` | |
+| OpenRouter | `OPENROUTER_API_KEY` | `meta-llama/llama-3.3-70b-instruct:free` | Aggregator, many `:free` models |
+| SambaNova | `SAMBANOVA_API_KEY` | `Meta-Llama-3.3-70B-Instruct` | |
+| GitHub Models | `GITHUB_MODELS_TOKEN` | `openai/gpt-4o-mini` | Uses a GitHub token |
+| Cloudflare Workers AI | `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` | `@cf/meta/llama-3.3-70b-instruct-fp8-fast` | |
+
+Each model is overridable via the matching `*_MODEL` env var (see
+`.env.example`). Where to get keys: Groq → [console.groq.com/keys](https://console.groq.com/keys),
+Cerebras → [cloud.cerebras.ai](https://cloud.cerebras.ai), Mistral →
+[console.mistral.ai](https://console.mistral.ai/api-keys), OpenRouter →
+[openrouter.ai/keys](https://openrouter.ai/keys), SambaNova →
+[cloud.sambanova.ai](https://cloud.sambanova.ai), GitHub Models →
+[github.com/marketplace/models](https://github.com/marketplace/models),
+Cloudflare → [dash.cloudflare.com](https://dash.cloudflare.com).
 
 ### Option A — Gemini (preferred)
 
@@ -33,16 +56,17 @@ Configuring at least one provider is required.
    GEMINI_API_KEY=your_key_here
    ```
 
-Default model: `gemini-2.5-flash`. On `rate_limit` or `model_not_found` the
-server auto-retries on `gemini-2.5-flash-lite` (higher free-tier budget).
-Override the primary via `GEMINI_MODEL=...` in `.env.local`.
+Default model: `gemini-2.5-flash-lite` (highest free-tier daily budget and the
+most reliable under load). On `rate_limit`, `model_not_found`, or `unavailable`
+(503 "high demand") the server retries and then auto-switches to
+`gemini-2.5-flash`. Override the primary via `GEMINI_MODEL=...` in `.env.local`.
 
 Approximate free-tier daily request budgets:
 
 | Model | Free quota (per day, approx.) |
 | --- | --- |
-| `gemini-2.5-flash` | ~250 |
-| `gemini-2.5-flash-lite` | ~1,000 |
+| `gemini-2.5-flash-lite` (primary) | ~1,000 |
+| `gemini-2.5-flash` (fallback) | ~250 |
 | `gemini-2.0-flash` | ~200 |
 
 ### Option B — Groq (alternative / fallback)
@@ -64,12 +88,17 @@ requests/day on `llama-3.3-70b-versatile`.
 
 ### Fallback behaviour
 
-When both keys are configured, the orchestrator tries Gemini first and
-transparently switches to Groq on any of: `rate_limit`, `auth`,
-`model_not_found`, `network`, `empty`, `unknown`. Invalid user input
+The orchestrator tries Gemini first, then walks down the list of configured
+providers (Groq, Cerebras, Mistral, OpenRouter, SambaNova, GitHub Models,
+Cloudflare) transparently switching to the next on any of: `rate_limit`,
+`auth`, `model_not_found`, `network`, `empty`, `unknown`. Invalid user input
 (`bad_request`) is returned immediately without a retry. When a fallback is
 used, the dialog briefly confirms which provider ultimately produced the
 itinerary.
+
+All non-Gemini providers use the OpenAI-compatible `/chat/completions` format,
+so adding another such provider is just a new entry in `buildProviders()` in
+[`lib/ai.ts`](lib/ai.ts).
 
 ## Authentication
 
@@ -112,32 +141,17 @@ The login page lives at `/login` with tabs to switch between sign-in and
 sign-up. Password reset uses `/auth/update-password` once the user clicks
 the link in the email.
 
-## Google Maps (trip map)
+## Trip map
 
-The collapsible **Mappa del viaggio** on trip detail pages uses the
-**Maps JavaScript API** for the interactive map and the **Geocoding API**
-to place activity markers. Without a key, geocoding falls back to
-OpenStreetMap Nominatim (slower: ~1 request/second).
+The collapsible **Mappa del viaggio** on trip detail pages uses
+**MapLibre GL** with free **OpenFreeMap** vector tiles (no API key, no
+billing) for the interactive map, and **OpenStreetMap Nominatim** to place
+activity markers. There is nothing to configure — no Google Cloud account or
+API key is required.
 
-### Setup
-
-1. In [Google Cloud Console](https://console.cloud.google.com/), create a
-   project with **billing** enabled (required for the free monthly credit).
-2. Enable **Maps JavaScript API** and **Geocoding API** only.
-3. Create an API key restricted to:
-   - **Application**: HTTP referrers — `http://localhost:3000/*` and your
-     production origin (e.g. `https://your-app.vercel.app/*`).
-   - **APIs**: only those two APIs (do not enable Places API — it is not used).
-4. Add to `.env.local` (see `.env.example`):
-
-   ```bash
-   NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=your_key_here
-   GOOGLE_MAPS_API_KEY=your_key_here
-   ```
-
-Use the same key for both variables: the public one loads the map in the
-browser; the server-only one geocodes locations without exposing usage to
-clients. Restart `npm run dev` after changing env vars.
+Optionally set `NOMINATIM_USER_AGENT` in `.env.local` to identify your app to
+the Nominatim service (recommended for production, per its usage policy).
+Geocoding is rate-limited to ~1 request/second.
 
 **Signed-in users:** after the first geocode, coordinates are stored on each
 activity/accommodation as `geo` inside the trip JSON in Supabase, so the map

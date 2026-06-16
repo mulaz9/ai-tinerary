@@ -1,3 +1,4 @@
+import { useTranslations } from "next-intl";
 import type { WeatherInfo } from "../lib/weather";
 
 interface WeatherBadgeProps {
@@ -6,54 +7,56 @@ interface WeatherBadgeProps {
 
 interface CodeMeta {
   emoji: string;
-  label: string;
+  key: string;
 }
 
 // WMO weather interpretation codes — grouped broadly for readable summaries.
 const WEATHER_CODE_MAP: Record<number, CodeMeta> = {
-  0: { emoji: "☀️", label: "Sereno" },
-  1: { emoji: "🌤️", label: "Prev. sereno" },
-  2: { emoji: "⛅", label: "Parz. nuvoloso" },
-  3: { emoji: "☁️", label: "Nuvoloso" },
-  45: { emoji: "🌫️", label: "Nebbia" },
-  48: { emoji: "🌫️", label: "Nebbia" },
-  51: { emoji: "🌦️", label: "Pioviggine" },
-  53: { emoji: "🌦️", label: "Pioviggine" },
-  55: { emoji: "🌦️", label: "Pioviggine" },
-  56: { emoji: "🌧️", label: "Pioviggine gelata" },
-  57: { emoji: "🌧️", label: "Pioviggine gelata" },
-  61: { emoji: "🌧️", label: "Pioggia leggera" },
-  63: { emoji: "🌧️", label: "Pioggia" },
-  65: { emoji: "🌧️", label: "Pioggia forte" },
-  66: { emoji: "🌧️", label: "Pioggia gelata" },
-  67: { emoji: "🌧️", label: "Pioggia gelata" },
-  71: { emoji: "🌨️", label: "Neve leggera" },
-  73: { emoji: "🌨️", label: "Neve" },
-  75: { emoji: "❄️", label: "Neve forte" },
-  77: { emoji: "❄️", label: "Granuli di neve" },
-  80: { emoji: "🌦️", label: "Rovesci" },
-  81: { emoji: "🌧️", label: "Rovesci" },
-  82: { emoji: "⛈️", label: "Rovesci forti" },
-  85: { emoji: "🌨️", label: "Rovesci di neve" },
-  86: { emoji: "🌨️", label: "Rovesci di neve" },
-  95: { emoji: "⛈️", label: "Temporale" },
-  96: { emoji: "⛈️", label: "Temporale + grandine" },
-  99: { emoji: "⛈️", label: "Temporale forte" },
+  0: { emoji: "☀️", key: "clear" },
+  1: { emoji: "🌤️", key: "mostlyClear" },
+  2: { emoji: "⛅", key: "partlyCloudy" },
+  3: { emoji: "☁️", key: "cloudy" },
+  45: { emoji: "🌫️", key: "fog" },
+  48: { emoji: "🌫️", key: "fog" },
+  51: { emoji: "🌦️", key: "drizzle" },
+  53: { emoji: "🌦️", key: "drizzle" },
+  55: { emoji: "🌦️", key: "drizzle" },
+  56: { emoji: "🌧️", key: "freezingDrizzle" },
+  57: { emoji: "🌧️", key: "freezingDrizzle" },
+  61: { emoji: "🌧️", key: "lightRain" },
+  63: { emoji: "🌧️", key: "rain" },
+  65: { emoji: "🌧️", key: "heavyRain" },
+  66: { emoji: "🌧️", key: "freezingRain" },
+  67: { emoji: "🌧️", key: "freezingRain" },
+  71: { emoji: "🌨️", key: "lightSnow" },
+  73: { emoji: "🌨️", key: "snow" },
+  75: { emoji: "❄️", key: "heavySnow" },
+  77: { emoji: "❄️", key: "snowGrains" },
+  80: { emoji: "🌦️", key: "showers" },
+  81: { emoji: "🌧️", key: "showers" },
+  82: { emoji: "⛈️", key: "heavyShowers" },
+  85: { emoji: "🌨️", key: "snowShowers" },
+  86: { emoji: "🌨️", key: "snowShowers" },
+  95: { emoji: "⛈️", key: "thunderstorm" },
+  96: { emoji: "⛈️", key: "thunderstormHail" },
+  99: { emoji: "⛈️", key: "heavyThunderstorm" },
 };
 
 function describe(code: number): CodeMeta {
-  return WEATHER_CODE_MAP[code] ?? { emoji: "🌡️", label: "—" };
+  return WEATHER_CODE_MAP[code] ?? { emoji: "🌡️", key: "unknown" };
 }
 
 export default function WeatherBadge({ info }: WeatherBadgeProps) {
-  const { emoji, label } = describe(info.weatherCode);
+  const t = useTranslations("weather");
+  const { emoji, key } = describe(info.weatherCode);
+  const label = t(`code.${key}`);
   const tMin = Math.round(info.tMin);
   const tMax = Math.round(info.tMax);
   const isClimate = info.kind === "climate";
 
   const title = isClimate
-    ? `Clima tipico: ${label} · ${tMin}°/${tMax}° · precip. ~${info.precipitation}mm`
-    : `Previsioni: ${label} · ${tMin}°/${tMax}° · precip. ${info.precipitation}mm`;
+    ? t("climateTitle", { label, tMin, tMax, precip: info.precipitation })
+    : t("forecastTitle", { label, tMin, tMax, precip: info.precipitation });
 
   return (
     <div
@@ -68,7 +71,7 @@ export default function WeatherBadge({ info }: WeatherBadgeProps) {
       </span>
       {isClimate ? (
         <span className="text-[10px] font-normal uppercase tracking-wide text-white/40">
-          tipico
+          {t("typical")}
         </span>
       ) : null}
     </div>

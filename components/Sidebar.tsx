@@ -3,44 +3,52 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { Trip } from "../types";
 import SafeImage from "./SafeImage";
 import { useAllTrips } from "../lib/trips-store";
 import UserMenu from "./UserMenu";
+import LanguageSwitcher from "./LanguageSwitcher";
 import { getCountryFromLocation } from "../lib/country-flag";
 
 const Sidebar = () => {
   const [selectedTrip, setSelectedTrip] = useState<Trip | null>(null);
   const pathname = usePathname();
   const { trips } = useAllTrips();
+  const t = useTranslations("sidebar");
+  const tNav = useTranslations("nav");
 
   return (
     <aside className="fixed inset-y-0 left-0 hidden w-80 shrink-0 overflow-y-auto border-r border-white/10 bg-[#141414]/90 p-6 backdrop-blur lg:block">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-xs font-semibold tracking-wide text-white/50">AI-tinerary</p>
-          <p className="text-lg font-semibold text-white">Itinerari</p>
+          <p className="text-xs font-semibold tracking-wide text-white/50">{t("kicker")}</p>
+          <p className="text-lg font-semibold text-white">{t("title")}</p>
         </div>
       </div>
 
       <UserMenu variant="sidebar" />
 
+      <div className="mt-4">
+        <LanguageSwitcher variant="sidebar" />
+      </div>
+
       <div className="mt-6">
         <Link
           href="/"
           className={`block rounded-xl px-3 py-2 text-sm font-medium transition ${
-            pathname === "/" ? "bg-white/10 text-white" : "text-white/70 hover:bg-white/5 hover:text-white"
+            pathname === "/" ? "bg-white/10 text-white"               : "text-white/70 hover:bg-white/5 hover:text-white"
           }`}
         >
-          Home
+          {tNav("home")}
         </Link>
       </div>
 
       <nav className="mt-5">
-        <p className="px-3 text-xs font-semibold text-white/40">Viaggi</p>
+        <p className="px-3 text-xs font-semibold text-white/40">{t("trips")}</p>
         {trips.length === 0 ? (
           <p className="mt-2 rounded-xl border border-dashed border-white/10 bg-white/[0.02] px-3 py-4 text-xs leading-relaxed text-white/40">
-            Nessun viaggio ancora. Creane uno con l&apos;AI dalla home.
+            {t("empty")}
           </p>
         ) : null}
         <ul className="mt-2 space-y-1">

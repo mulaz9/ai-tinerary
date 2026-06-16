@@ -1,12 +1,26 @@
 import { Accommodation, Activity, Day, Trip, TransportInfo } from "../types";
+import { LANGUAGE_FOR_AI, normalizeLocale } from "../i18n/config";
+import { dedupeTripDays, isDuplicateActivity } from "./activity-dedup";
 import { lookupImage } from "./images";
 import { buildMapsUrl } from "./maps";
+import { isRestaurant } from "./restaurant";
+import {
+  verifyRestaurantActivity,
+  verifyRestaurantsInDays,
+} from "./restaurant-verify";
+
+/** Resolves a locale code (it/en/fr/es/de) to the language name used in prompts. */
+function languageName(code?: string): string {
+  return LANGUAGE_FOR_AI[normalizeLocale(code)];
+}
 
 export interface GenerateTripInput {
   destination: string;
   arrival: string;
   departure: string;
   notes?: string;
+  /** UI locale (it/en/fr/es/de); the itinerary text is generated in this language. */
+  language?: string;
   /**
    * Places the traveller is staying at across the trip (hotel, airbnb,
    * address…). The first one anchors the prompt (morning routes start
@@ -18,7 +32,26 @@ export interface GenerateTripInput {
   accommodation?: string;
 }
 
-export type AIProvider = "gemini" | "groq";
+/** Provider id (e.g. "gemini", "groq", "cerebras", …). */
+export type AIProvider = string;
+
+/** Human-readable names per provider id, used for UI messages. */
+export const PROVIDER_LABELS: Record<string, string> = {
+  gemini: "Gemini",
+  groq: "Groq",
+  cerebras: "Cerebras",
+  mistral: "Mistral",
+  openrouter: "OpenRouter",
+  sambanova: "SambaNova",
+  github: "GitHub Models",
+  cloudflare: "Cloudflare Workers AI",
+};
+
+/** Maps a provider id to a display name (falls back to the id, then a generic label). */
+export function providerLabel(id?: string): string {
+  if (!id) return "il provider AI";
+  return PROVIDER_LABELS[id] ?? id;
+}
 
 export interface GenerateTripResult {
   trip: Trip;
@@ -34,6 +67,7 @@ export class AIError extends Error {
     | "empty"
     | "network"
     | "model_not_found"
+    | "unavailable"
     | "no_provider"
     | "unknown";
   retryAfterSec?: number;
@@ -56,14 +90,129 @@ export class AIError extends Error {
 // ───────────────────────── Config ─────────────────────────
 
 const GEMINI_PRIMARY_MODEL =
-  process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash";
-const GEMINI_FALLBACK_MODEL = "gemini-2.5-flash-lite";
+  process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash-lite";
+const GEMINI_FALLBACK_MODEL = "gemini-2.5-flash";
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
-const GROQ_MODEL = process.env.GROQ_MODEL?.trim() || "llama-3.3-70b-versatile";
-const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
-
 const RETRY_DELAYS_MS = [1500, 4000];
+
+// ───────────────────────── OpenAI-compatible providers ─────────────────────────
+
+/**
+ * A free AI provider that speaks the OpenAI `/chat/completions` format. Each
+ * entry is only built (and therefore used) when its API key is present, so
+ * users enable as many free fallbacks as they want by adding env keys.
+ */
+interface OpenAICompatProvider {
+  id: AIProvider;
+  label: string;
+  model: string;
+  url: string;
+  apiKey: string;
+  /** Extra request headers (e.g. OpenRouter attribution). */
+  headers?: Record<string, string>;
+  /** Whether the provider reliably supports `response_format: json_object`. */
+  supportsJsonMode: boolean;
+}
+
+/**
+ * Builds the ordered list of available OpenAI-compatible fallbacks from env.
+ * Order = preference after Gemini: Groq, Cerebras, Mistral, OpenRouter,
+ * SambaNova, GitHub Models, Cloudflare. Default models are env-overridable.
+ */
+function buildProviders(): OpenAICompatProvider[] {
+  const env = process.env;
+  const providers: OpenAICompatProvider[] = [];
+
+  if (env.GROQ_API_KEY) {
+    providers.push({
+      id: "groq",
+      label: "Groq",
+      model: env.GROQ_MODEL?.trim() || "llama-3.3-70b-versatile",
+      url: "https://api.groq.com/openai/v1/chat/completions",
+      apiKey: env.GROQ_API_KEY,
+      supportsJsonMode: true,
+    });
+  }
+
+  if (env.CEREBRAS_API_KEY) {
+    providers.push({
+      id: "cerebras",
+      label: "Cerebras",
+      model: env.CEREBRAS_MODEL?.trim() || "llama-3.3-70b",
+      url: "https://api.cerebras.ai/v1/chat/completions",
+      apiKey: env.CEREBRAS_API_KEY,
+      supportsJsonMode: true,
+    });
+  }
+
+  if (env.MISTRAL_API_KEY) {
+    providers.push({
+      id: "mistral",
+      label: "Mistral",
+      model: env.MISTRAL_MODEL?.trim() || "mistral-small-latest",
+      url: "https://api.mistral.ai/v1/chat/completions",
+      apiKey: env.MISTRAL_API_KEY,
+      supportsJsonMode: true,
+    });
+  }
+
+  if (env.OPENROUTER_API_KEY) {
+    providers.push({
+      id: "openrouter",
+      label: "OpenRouter",
+      model:
+        env.OPENROUTER_MODEL?.trim() ||
+        "meta-llama/llama-3.3-70b-instruct:free",
+      url: "https://openrouter.ai/api/v1/chat/completions",
+      apiKey: env.OPENROUTER_API_KEY,
+      headers: {
+        "HTTP-Referer":
+          env.OPENROUTER_SITE_URL?.trim() || "https://ai-tinerary.app",
+        "X-Title": "AI-tinerary",
+      },
+      supportsJsonMode: true,
+    });
+  }
+
+  if (env.SAMBANOVA_API_KEY) {
+    providers.push({
+      id: "sambanova",
+      label: "SambaNova",
+      model: env.SAMBANOVA_MODEL?.trim() || "Meta-Llama-3.3-70B-Instruct",
+      url: "https://api.sambanova.ai/v1/chat/completions",
+      apiKey: env.SAMBANOVA_API_KEY,
+      supportsJsonMode: true,
+    });
+  }
+
+  if (env.GITHUB_MODELS_TOKEN) {
+    providers.push({
+      id: "github",
+      label: "GitHub Models",
+      model: env.GITHUB_MODELS_MODEL?.trim() || "openai/gpt-4o-mini",
+      url: "https://models.github.ai/inference/chat/completions",
+      apiKey: env.GITHUB_MODELS_TOKEN,
+      supportsJsonMode: true,
+    });
+  }
+
+  const cfAccount = env.CLOUDFLARE_ACCOUNT_ID?.trim();
+  if (cfAccount && env.CLOUDFLARE_API_TOKEN) {
+    providers.push({
+      id: "cloudflare",
+      label: "Cloudflare Workers AI",
+      model:
+        env.CLOUDFLARE_MODEL?.trim() ||
+        "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+      url: `https://api.cloudflare.com/client/v4/accounts/${cfAccount}/ai/v1/chat/completions`,
+      apiKey: env.CLOUDFLARE_API_TOKEN,
+      supportsJsonMode: false,
+    });
+  }
+
+  return providers;
+}
 
 // ───────────────────────── Shared schema + prompt ─────────────────────────
 
@@ -216,8 +365,16 @@ function buildAccommodations(input: GenerateTripInput): Accommodation[] {
     : [];
   const fromLegacy = input.accommodation?.trim();
   const names = fromArray.length > 0 ? fromArray : fromLegacy ? [fromLegacy] : [];
+  const unique: string[] = [];
+  const seen = new Set<string>();
+  for (const name of names) {
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(name);
+  }
 
-  return names.map((name, i) => ({ id: `acc-${i + 1}`, name }));
+  return unique.map((name, i) => ({ id: `acc-${i + 1}`, name }));
 }
 
 async function normalizeTrip(
@@ -277,7 +434,14 @@ async function normalizeTrip(
     };
   });
 
-  const coverImageUrl = await coverImageFor(input.destination);
+  // Cover image and restaurant verification are independent → run in parallel.
+  const [coverImageUrl, verifiedDays] = await Promise.all([
+    coverImageFor(input.destination),
+    verifyRestaurantsInDays(days, {
+      destination: input.destination,
+      origin: defaultOrigin,
+    }),
+  ]);
 
   return {
     id: tripId,
@@ -292,8 +456,9 @@ async function normalizeTrip(
     accommodation: defaultOrigin,
     accommodations: accommodations.length > 0 ? accommodations : undefined,
     coverImageUrl,
-    days,
+    days: dedupeTripDays(verifiedDays),
     isUserCreated: true,
+    contentLang: normalizeLocale(input.language),
   };
 }
 
@@ -301,6 +466,7 @@ function buildBasePrompt(input: GenerateTripInput): string {
   const arrival = splitDateTime(input.arrival);
   const departure = splitDateTime(input.departure);
   const dates = datesBetween(arrival.date, departure.date);
+  const lang = languageName(input.language);
 
   const accommodations = buildAccommodations(input);
   const hotel = accommodations[0]?.name;
@@ -314,7 +480,7 @@ function buildBasePrompt(input: GenerateTripInput): string {
         : "";
 
   return [
-    `Sei un assistente di viaggio. Genera un itinerario dettagliato in ITALIANO.`,
+    `Sei un assistente di viaggio. Genera un itinerario dettagliato. Scrivi TUTTI i testi rivolti all'utente (name, subtitle, description, title e summary dei giorni, description e transport.summary delle attività) nella lingua: ${lang}.`,
     `Destinazione: ${input.destination}`,
     accommodationsLine,
     `Arrivo: ${arrival.date} alle ${arrival.time || "??:??"}`,
@@ -333,7 +499,10 @@ function buildBasePrompt(input: GenerateTripInput): string {
       : "",
     `- Per ogni attività specifica: time, title, description breve, location, durationMins (numero intero di minuti), transport { mode, summary }.`,
     `- Il campo "location" DEVE essere geocodabile su Google Maps senza ambiguità: usa il nome ufficiale del luogo seguito dalla città e dal paese (es. "Colosseo, Roma, Italia", "Museo del Prado, Madrid, Spagna"). Se conosci l'indirizzo preciso, includilo ("Piazza del Colosseo 1, Roma, Italia"). Evita nomi generici ("centro città", "ristorante tipico"): specifica sempre un POI o un indirizzo reale e verificabile.`,
+    `- Per i pasti (pranzo/cena/colazione) scegli SEMPRE un ristorante REALE, attualmente in attività e noto, indicando il nome ufficiale esatto + via e numero civico + città + paese (es. "Trattoria Da Enzo al 29, Via dei Vascellari 29, Roma, Italia"). NON inventare nomi e NON usare descrizioni vaghe ("una trattoria tipica", "un ristorante in zona"). Preferisci locali affermati e ben recensiti.`,
+    `- Aggiungi sempre il tag "cibo" alle attività che sono pasti o tappe gastronomiche.`,
     `- Non inventare luoghi: se non sei certo dell'esistenza di un nome, usa un punto di riferimento famoso e realmente esistente nella zona.`,
+    `- NON ripetere la stessa attività, lo stesso POI o lo stesso ristorante in giorni diversi né più volte nello stesso giorno: ogni tappa deve essere unica nell'intero itinerario.`,
     `- mode deve essere uno tra: bus, tram, metro, train, walk, ferry, taxi.`,
     `- tags facoltativi (es. "cibo", "cultura", "mare", "relax", "foto", "shopping", "natura", "logistica", "passeggiata").`,
     `- "name" del viaggio breve e accattivante; "subtitle" con date leggibili; "description" 1-2 frasi.`,
@@ -347,9 +516,27 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+/**
+ * Pulls a JSON object out of a model response that may be wrapped in markdown
+ * fences or surrounded by prose. Falls back to the trimmed input when no
+ * object delimiters are found. Needed because some free providers don't honor
+ * `response_format: json_object`.
+ */
+function extractJsonObject(text: string): string {
+  let t = text.trim();
+  const fenced = t.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  if (fenced) t = fenced[1].trim();
+  const start = t.indexOf("{");
+  const end = t.lastIndexOf("}");
+  if (start !== -1 && end !== -1 && end > start) {
+    t = t.slice(start, end + 1);
+  }
+  return t;
+}
+
 function parseTripJson(text: string, provider: AIProvider): RawTrip {
   try {
-    return JSON.parse(text) as RawTrip;
+    return JSON.parse(extractJsonObject(text)) as RawTrip;
   } catch {
     throw new AIError(
       "Risposta AI non in formato JSON valido.",
@@ -471,6 +658,21 @@ async function callGemini(
         "gemini",
       );
     }
+    // 503 UNAVAILABLE / 500: the model is overloaded ("high demand"). This is
+    // transient and very common on gemini-2.5-flash free tier — retry and/or
+    // switch to the lite model instead of giving up on Gemini entirely.
+    if (
+      res.status === 503 ||
+      res.status === 500 ||
+      /unavailable|overload|high demand/i.test(apiMsg ?? "")
+    ) {
+      throw new AIError(
+        apiMsg || "Modello Gemini momentaneamente sovraccarico.",
+        "unavailable",
+        undefined,
+        "gemini",
+      );
+    }
     throw new AIError(
       apiMsg || `Gemini ha risposto con status ${res.status}.`,
       "unknown",
@@ -506,7 +708,12 @@ async function callGeminiWithRetry(
     } catch (err) {
       if (!(err instanceof AIError)) throw err;
       lastError = err;
-      if (err.code !== "rate_limit" && err.code !== "network") throw err;
+      if (
+        err.code !== "rate_limit" &&
+        err.code !== "network" &&
+        err.code !== "unavailable"
+      )
+        throw err;
       if (attempt === RETRY_DELAYS_MS.length) throw err;
       const suggested = (err.retryAfterSec ?? 0) * 1000;
       const wait = Math.min(
@@ -542,11 +749,13 @@ async function runGemini(
   } catch (err) {
     const shouldSwitchModel =
       err instanceof AIError &&
-      (err.code === "rate_limit" || err.code === "model_not_found") &&
+      (err.code === "rate_limit" ||
+        err.code === "model_not_found" ||
+        err.code === "unavailable") &&
       GEMINI_FALLBACK_MODEL !== GEMINI_PRIMARY_MODEL;
 
     if (shouldSwitchModel) {
-      text = await callGemini(GEMINI_FALLBACK_MODEL, apiKey, prompt);
+      text = await callGeminiWithRetry(GEMINI_FALLBACK_MODEL, apiKey, prompt);
     } else {
       throw err;
     }
@@ -555,39 +764,47 @@ async function runGemini(
   return normalizeTrip(parseTripJson(text, "gemini"), input);
 }
 
-// ───────────────────────── Groq provider ─────────────────────────
+// ───────────────────────── OpenAI-compatible provider runner ─────────────────────────
 
-function buildGroqPrompt(base: string): string {
-  return [
-    base,
-    ``,
-    `Formato richiesto (JSON object con questa forma):`,
-    JSON.stringify(tripResponseSchema),
-  ].join("\n");
-}
-
-async function callGroq(apiKey: string, prompt: string): Promise<string> {
-  const body = {
-    model: GROQ_MODEL,
+/**
+ * Calls any OpenAI-compatible chat-completions endpoint. The expected JSON
+ * schema is appended to the user message (and `response_format: json_object`
+ * is requested when supported) so every provider returns a single JSON object.
+ * Error handling mirrors the previous Groq path, tagging errors with the
+ * provider id so the orchestrator's fallback logic and the UI work uniformly.
+ */
+async function callOpenAICompat(
+  provider: OpenAICompatProvider,
+  prompt: string,
+  schema: object,
+): Promise<string> {
+  const body: Record<string, unknown> = {
+    model: provider.model,
     messages: [
       {
         role: "system",
         content:
           "Sei un assistente di viaggio. Rispondi sempre con un JSON valido, senza testo aggiuntivo.",
       },
-      { role: "user", content: prompt },
+      {
+        role: "user",
+        content: `${prompt}\n\nFormato richiesto (JSON object con questa forma):\n${JSON.stringify(schema)}`,
+      },
     ],
-    response_format: { type: "json_object" },
     temperature: 0.7,
   };
+  if (provider.supportsJsonMode) {
+    body.response_format = { type: "json_object" };
+  }
 
   let res: Response;
   try {
-    res = await fetch(GROQ_URL, {
+    res = await fetch(provider.url, {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        authorization: `Bearer ${apiKey}`,
+        authorization: `Bearer ${provider.apiKey}`,
+        ...(provider.headers ?? {}),
       },
       body: JSON.stringify(body),
     });
@@ -596,7 +813,7 @@ async function callGroq(apiKey: string, prompt: string): Promise<string> {
       err instanceof Error ? err.message : "Errore di rete.",
       "network",
       undefined,
-      "groq",
+      provider.id,
     );
   }
 
@@ -620,45 +837,47 @@ async function callGroq(apiKey: string, prompt: string): Promise<string> {
 
     if (res.status === 429) {
       throw new AIError(
-        apiMsg || "Limite di richieste Groq raggiunto.",
+        apiMsg || `Limite di richieste ${provider.label} raggiunto.`,
         "rate_limit",
         retryAfterSec,
-        "groq",
+        provider.id,
       );
     }
     if (res.status === 401 || res.status === 403) {
       throw new AIError(
-        apiMsg || "Chiave API Groq non valida o non autorizzata.",
+        apiMsg || `Chiave API ${provider.label} non valida o non autorizzata.`,
         "auth",
         undefined,
-        "groq",
+        provider.id,
       );
     }
     if (
       res.status === 404 ||
       (res.status === 400 &&
-        /model.*(not.?found|decommissioned|does not exist)/i.test(apiMsg ?? ""))
+        /model.*(not.?found|decommissioned|does not exist|not supported)/i.test(
+          apiMsg ?? "",
+        ))
     ) {
       throw new AIError(
-        apiMsg || `Modello Groq "${GROQ_MODEL}" non disponibile.`,
+        apiMsg || `Modello ${provider.label} "${provider.model}" non disponibile.`,
         "model_not_found",
         undefined,
-        "groq",
+        provider.id,
       );
     }
     if (res.status >= 400 && res.status < 500) {
       throw new AIError(
-        apiMsg || `Richiesta Groq rifiutata (status ${res.status}).`,
+        apiMsg || `Richiesta ${provider.label} rifiutata (status ${res.status}).`,
         "bad_request",
         undefined,
-        "groq",
+        provider.id,
       );
     }
     throw new AIError(
-      apiMsg || `Groq ha risposto con status ${res.status}.`,
+      apiMsg || `${provider.label} ha risposto con status ${res.status}.`,
       "unknown",
       undefined,
-      "groq",
+      provider.id,
     );
   }
 
@@ -668,30 +887,22 @@ async function callGroq(apiKey: string, prompt: string): Promise<string> {
   const text = json.choices?.[0]?.message?.content;
   if (!text) {
     throw new AIError(
-      "Groq non ha restituito contenuto utilizzabile.",
+      `${provider.label} non ha restituito contenuto utilizzabile.`,
       "empty",
       undefined,
-      "groq",
+      provider.id,
     );
   }
   return text;
 }
 
-async function runGroq(
+async function runOpenAICompat(
+  provider: OpenAICompatProvider,
   prompt: string,
   input: GenerateTripInput,
 ): Promise<Trip> {
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) {
-    throw new AIError(
-      "GROQ_API_KEY non configurata.",
-      "auth",
-      undefined,
-      "groq",
-    );
-  }
-  const text = await callGroq(apiKey, buildGroqPrompt(prompt));
-  return normalizeTrip(parseTripJson(text, "groq"), input);
+  const text = await callOpenAICompat(provider, prompt, tripResponseSchema);
+  return normalizeTrip(parseTripJson(text, provider.id), input);
 }
 
 // ───────────────────────── Provider fallback policy ─────────────────────────
@@ -705,6 +916,7 @@ const FALLBACK_CODES: ReadonlySet<AIError["code"]> = new Set([
   "rate_limit",
   "auth",
   "model_not_found",
+  "unavailable",
   "network",
   "empty",
   "unknown",
@@ -727,6 +939,10 @@ export interface GenerateActivityInput {
   durationMins?: number;
   /** Free-form preferences. */
   notes?: string;
+  /** UI locale (it/en/fr/es/de); the activity text is generated in this language. */
+  language?: string;
+  /** Activities already in the trip/day — used to avoid generating duplicates. */
+  existingActivities?: { title: string; location: string }[];
 }
 
 const activityResponseSchema = {
@@ -761,9 +977,20 @@ interface RawSingleActivity {
 function buildActivityPrompt(input: GenerateActivityInput): string {
   const startTime = input.startTime?.trim();
   const hotel = input.accommodation?.trim();
+  const lang = languageName(input.language);
+  const existing = (input.existingActivities ?? []).filter(
+    (a) => a.title?.trim() || a.location?.trim(),
+  );
+  const existingLine =
+    existing.length > 0
+      ? `Attività già presenti nel viaggio (NON ripetere lo stesso POI/ristorante): ${existing
+          .map((a) => `"${a.title}" @ ${a.location}`)
+          .join("; ")}.`
+      : "";
   return [
-    `Sei un assistente di viaggio. Genera UNA sola attività di viaggio in ITALIANO.`,
+    `Sei un assistente di viaggio. Genera UNA sola attività di viaggio. Scrivi title, description e transport.summary nella lingua: ${lang}.`,
     `Destinazione del viaggio: ${input.destination}`,
+    existingLine,
     hotel ? `Alloggio (punto di partenza): ${hotel}` : "",
     input.dayDate ? `Data: ${input.dayDate}` : "",
     `Luogo di interesse richiesto dall'utente: "${input.placeOfInterest}"`,
@@ -778,7 +1005,9 @@ function buildActivityPrompt(input: GenerateActivityInput): string {
     `- "title" breve e concreto (max ~60 caratteri).`,
     `- "description" 1-2 frasi che spiegano cosa fare e perché vale la pena.`,
     `- "location" DEVE essere geocodabile su Google Maps senza ambiguità: nome ufficiale del POI seguito da città e paese (es. "Colosseo, Roma, Italia"). Se conosci l'indirizzo, includilo. Non inventare luoghi.`,
+    `- Se è un ristorante o un pasto, scegli un locale REALE e in attività con nome ufficiale esatto + via e numero + città + paese, e aggiungi il tag "cibo". Niente nomi inventati o generici.`,
     `- Se l'utente ha indicato un luogo non famoso o ambiguo, scegli il punto di interesse più vicino e realmente esistente che meglio corrisponde.`,
+    `- NON duplicare un'attività già elencata nel viaggio (stesso luogo o stesso ristorante).`,
     `- "durationMins" è un intero realistico (intero, in minuti).`,
     `- "transport.mode" tra: bus, tram, metro, train, walk, ferry, taxi.`,
     `- "transport.summary" descrive come arrivare ${hotel ? `dall'alloggio "${hotel}"` : "dal centro"} al luogo.`,
@@ -792,12 +1021,13 @@ async function callGeminiActivity(
   apiKey: string,
   prompt: string,
   model: string,
+  schema: object = activityResponseSchema,
 ): Promise<string> {
   const body = {
     contents: [{ role: "user", parts: [{ text: prompt }] }],
     generationConfig: {
       responseMimeType: "application/json",
-      responseSchema: activityResponseSchema,
+      responseSchema: schema,
       temperature: 0.7,
     },
   };
@@ -839,6 +1069,18 @@ async function callGeminiActivity(
         "gemini",
       );
     }
+    if (
+      res.status === 503 ||
+      res.status === 500 ||
+      /unavailable|overload|high demand/i.test(apiMsg ?? "")
+    ) {
+      throw new AIError(
+        apiMsg || "Modello Gemini momentaneamente sovraccarico.",
+        "unavailable",
+        undefined,
+        "gemini",
+      );
+    }
     throw new AIError(
       apiMsg || `Gemini status ${res.status}`,
       "unknown",
@@ -852,84 +1094,6 @@ async function callGeminiActivity(
   const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!text)
     throw new AIError("Gemini risposta vuota.", "empty", undefined, "gemini");
-  return text;
-}
-
-async function callGroqActivity(
-  apiKey: string,
-  prompt: string,
-): Promise<string> {
-  const body = {
-    model: GROQ_MODEL,
-    messages: [
-      {
-        role: "system",
-        content:
-          "Sei un assistente di viaggio. Rispondi sempre con un JSON valido, senza testo aggiuntivo.",
-      },
-      {
-        role: "user",
-        content: `${prompt}\n\nFormato richiesto (JSON object con questa forma):\n${JSON.stringify(activityResponseSchema)}`,
-      },
-    ],
-    response_format: { type: "json_object" },
-    temperature: 0.7,
-  };
-  const res = await fetch(GROQ_URL, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const errText = await res.text().catch(() => "");
-    let apiMsg: string | undefined;
-    try {
-      apiMsg = (
-        JSON.parse(errText) as { error?: { message?: string } }
-      ).error?.message?.trim();
-    } catch {
-      apiMsg = errText.slice(0, 300);
-    }
-    if (res.status === 429) {
-      throw new AIError(
-        apiMsg || "Limite Groq raggiunto.",
-        "rate_limit",
-        undefined,
-        "groq",
-      );
-    }
-    if (res.status === 401 || res.status === 403) {
-      throw new AIError(
-        apiMsg || "Chiave Groq non valida.",
-        "auth",
-        undefined,
-        "groq",
-      );
-    }
-    if (res.status === 404) {
-      throw new AIError(
-        apiMsg || "Modello Groq non disponibile.",
-        "model_not_found",
-        undefined,
-        "groq",
-      );
-    }
-    throw new AIError(
-      apiMsg || `Groq status ${res.status}`,
-      "unknown",
-      undefined,
-      "groq",
-    );
-  }
-  const json = (await res.json()) as {
-    choices?: { message?: { content?: string } }[];
-  };
-  const text = json.choices?.[0]?.message?.content;
-  if (!text)
-    throw new AIError("Groq risposta vuota.", "empty", undefined, "groq");
   return text;
 }
 
@@ -956,30 +1120,60 @@ export async function generateActivity(
   }
 
   const prompt = buildActivityPrompt({ ...input, placeOfInterest: place });
-  const hasGemini = !!process.env.GEMINI_API_KEY;
-  const hasGroq = !!process.env.GROQ_API_KEY;
+  const geminiKey = process.env.GEMINI_API_KEY;
+  const compatProviders = buildProviders();
 
-  if (!hasGemini && !hasGroq) {
+  if (!geminiKey && compatProviders.length === 0) {
     throw new AIError("Nessuna chiave AI configurata.", "no_provider");
   }
 
-  const providers: AIProvider[] = [];
-  if (hasGemini) providers.push("gemini");
-  if (hasGroq) providers.push("groq");
+  // Ordered attempts: Gemini first (when available), then each OpenAI-compatible
+  // fallback. Each attempt yields the raw model text.
+  const attempts: { id: AIProvider; getText: () => Promise<string> }[] = [];
+  if (geminiKey) {
+    attempts.push({
+      id: "gemini",
+      getText: async () => {
+        try {
+          return await callGeminiActivity(
+            geminiKey,
+            prompt,
+            GEMINI_PRIMARY_MODEL,
+          );
+        } catch (e) {
+          // On overload / rate-limit / missing model, retry on the lite model
+          // before handing off to other providers.
+          if (
+            e instanceof AIError &&
+            (e.code === "unavailable" ||
+              e.code === "rate_limit" ||
+              e.code === "model_not_found") &&
+            GEMINI_FALLBACK_MODEL !== GEMINI_PRIMARY_MODEL
+          ) {
+            return await callGeminiActivity(
+              geminiKey,
+              prompt,
+              GEMINI_FALLBACK_MODEL,
+            );
+          }
+          throw e;
+        }
+      },
+    });
+  }
+  for (const p of compatProviders) {
+    attempts.push({
+      id: p.id,
+      getText: () => callOpenAICompat(p, prompt, activityResponseSchema),
+    });
+  }
 
   let primaryError: AIError | undefined;
-  for (let i = 0; i < providers.length; i++) {
-    const provider = providers[i];
+  for (let i = 0; i < attempts.length; i++) {
+    const { id: provider, getText } = attempts[i];
     try {
-      const apiKey =
-        provider === "gemini"
-          ? process.env.GEMINI_API_KEY!
-          : process.env.GROQ_API_KEY!;
-      const text =
-        provider === "gemini"
-          ? await callGeminiActivity(apiKey, prompt, GEMINI_PRIMARY_MODEL)
-          : await callGroqActivity(apiKey, prompt);
-      const raw = JSON.parse(text) as RawSingleActivity;
+      const text = await getText();
+      const raw = JSON.parse(extractJsonObject(text)) as RawSingleActivity;
       const location = raw.location?.trim() || place;
       const activity: Omit<Activity, "id"> = {
         time: input.startTime ? input.startTime : "",
@@ -997,22 +1191,44 @@ export async function generateActivity(
         }),
         transport: normalizeTransport(raw.transport),
       };
-      return { activity, provider };
+      // Only snap/replace when this is actually a restaurant, so a user-chosen
+      // landmark is never swapped for an eatery.
+      const finalActivity = isRestaurant({
+        tags: activity.tags,
+        title: activity.title,
+      })
+        ? await verifyRestaurantActivity(activity, {
+            destination: input.destination,
+            origin: input.accommodation,
+          })
+        : activity;
+      const existing = input.existingActivities ?? [];
+      if (isDuplicateActivity(finalActivity, existing)) {
+        throw new AIError(
+          "Questa attività è già presente nel viaggio.",
+          "bad_request",
+          undefined,
+          provider,
+        );
+      }
+      return { activity: finalActivity, provider };
     } catch (err) {
-      if (!(err instanceof AIError)) {
-        if (err instanceof SyntaxError) {
-          throw new AIError(
-            "Risposta AI non in formato JSON valido.",
-            "empty",
-            undefined,
-            providers[i],
-          );
-        }
+      let aiErr: AIError;
+      if (err instanceof AIError) {
+        aiErr = err;
+      } else if (err instanceof SyntaxError) {
+        aiErr = new AIError(
+          "Risposta AI non in formato JSON valido.",
+          "empty",
+          undefined,
+          provider,
+        );
+      } else {
         throw err;
       }
-      if (i === 0) primaryError = err;
-      const isLast = i === providers.length - 1;
-      if (isLast || !FALLBACK_CODES.has(err.code)) throw err;
+      if (i === 0) primaryError = aiErr;
+      const isLast = i === attempts.length - 1;
+      if (isLast || !FALLBACK_CODES.has(aiErr.code)) throw aiErr;
     }
   }
 
@@ -1040,40 +1256,454 @@ export async function generateTrip(
   }
 
   const prompt = buildBasePrompt(input);
-  const hasGemini = !!process.env.GEMINI_API_KEY;
-  const hasGroq = !!process.env.GROQ_API_KEY;
+  const geminiKey = process.env.GEMINI_API_KEY;
+  const compatProviders = buildProviders();
 
-  if (!hasGemini && !hasGroq) {
+  if (!geminiKey && compatProviders.length === 0) {
     throw new AIError(
-      "Nessuna chiave AI configurata. Aggiungi GEMINI_API_KEY o GROQ_API_KEY in .env.local.",
+      "Nessuna chiave AI configurata. Aggiungi GEMINI_API_KEY o un'altra chiave provider (GROQ_API_KEY, CEREBRAS_API_KEY, …) in .env.local.",
       "no_provider",
     );
   }
 
   // Preferred order: Gemini first (higher quality JSON schema enforcement),
-  // then Groq as a free, fast fallback.
-  const providers: AIProvider[] = [];
-  if (hasGemini) providers.push("gemini");
-  if (hasGroq) providers.push("groq");
+  // then every available free OpenAI-compatible provider as fallback.
+  const attempts: { id: AIProvider; run: () => Promise<Trip> }[] = [];
+  if (geminiKey) {
+    attempts.push({ id: "gemini", run: () => runGemini(prompt, input) });
+  }
+  for (const p of compatProviders) {
+    attempts.push({ id: p.id, run: () => runOpenAICompat(p, prompt, input) });
+  }
 
   let primaryError: AIError | undefined;
-  for (let i = 0; i < providers.length; i++) {
-    const provider = providers[i];
+  for (let i = 0; i < attempts.length; i++) {
+    const { id: provider, run } = attempts[i];
     try {
-      const trip =
-        provider === "gemini"
-          ? await runGemini(prompt, input)
-          : await runGroq(prompt, input);
+      const trip = await run();
       return { trip, provider, fellBack: i > 0 };
     } catch (err) {
       if (!(err instanceof AIError)) throw err;
       if (i === 0) primaryError = err;
-      const isLast = i === providers.length - 1;
+      const isLast = i === attempts.length - 1;
       if (isLast || !FALLBACK_CODES.has(err.code)) throw err;
       // otherwise: loop to the next provider
     }
   }
 
   // Unreachable, but keeps TS happy.
+  throw primaryError ?? new AIError("Errore sconosciuto.");
+}
+
+// ───────────────────────── Trip translation ─────────────────────────
+
+const translateResponseSchema = {
+  type: "object",
+  properties: {
+    name: { type: "string" },
+    subtitle: { type: "string" },
+    description: { type: "string" },
+    days: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          title: { type: "string" },
+          summary: { type: "string" },
+          activities: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                title: { type: "string" },
+                description: { type: "string" },
+                transportSummary: { type: "string" },
+              },
+              required: ["title", "description", "transportSummary"],
+            },
+          },
+        },
+        required: ["title", "summary", "activities"],
+      },
+    },
+  },
+  required: ["name", "subtitle", "description", "days"],
+} as const;
+
+interface RawTranslatedActivity {
+  title?: string;
+  description?: string;
+  transportSummary?: string;
+}
+interface RawTranslatedDay {
+  title?: string;
+  summary?: string;
+  activities?: RawTranslatedActivity[];
+}
+interface RawTranslatedTrip {
+  name?: string;
+  subtitle?: string;
+  description?: string;
+  days?: RawTranslatedDay[];
+}
+
+export interface TranslateTripResult {
+  trip: Trip;
+  provider: AIProvider;
+}
+
+/** Compact, translatable view of a trip (text fields only, structure preserved). */
+function buildTranslatablePayload(trip: Trip): RawTranslatedTrip {
+  return {
+    name: trip.name,
+    subtitle: trip.subtitle ?? "",
+    description: trip.description,
+    days: trip.days.map((d) => ({
+      title: d.title,
+      summary: d.summary,
+      activities: d.activities.map((a) => ({
+        title: a.title,
+        description: a.description,
+        transportSummary: a.transport?.summary ?? "",
+      })),
+    })),
+  };
+}
+
+function buildTranslatePrompt(trip: Trip, lang: string): string {
+  return [
+    `Sei un traduttore professionista. Traduci i testi del seguente itinerario di viaggio nella lingua: ${lang}.`,
+    `Regole:`,
+    `- Mantieni ESATTAMENTE la stessa struttura JSON, lo stesso numero di giorni e di attività, nello stesso ordine.`,
+    `- Traduci SOLO i valori testuali: name, subtitle, description, days[].title, days[].summary, days[].activities[].title, days[].activities[].description, days[].activities[].transportSummary.`,
+    `- NON tradurre né modificare nomi propri di luoghi, monumenti, ristoranti, vie o indirizzi quando compaiono: lasciali nella forma originale (servono per la geolocalizzazione).`,
+    `- Non aggiungere né rimuovere campi.`,
+    `- Rispondi SOLO con JSON valido con la stessa forma dell'input.`,
+    ``,
+    `Input:`,
+    JSON.stringify(buildTranslatablePayload(trip)),
+  ].join("\n");
+}
+
+/** Merges the translated text back onto the trip, preserving all other fields. */
+function mergeTranslatedTrip(
+  trip: Trip,
+  raw: RawTranslatedTrip,
+  targetLang: string,
+): Trip {
+  const days: Day[] = trip.days.map((day, dIdx) => {
+    const rd = raw.days?.[dIdx];
+    const activities: Activity[] = day.activities.map((act, aIdx) => {
+      const ra = rd?.activities?.[aIdx];
+      const summary = ra?.transportSummary?.trim();
+      return {
+        ...act,
+        title: ra?.title?.trim() || act.title,
+        description: ra?.description?.trim() || act.description,
+        transport: act.transport
+          ? { ...act.transport, summary: summary || act.transport.summary }
+          : act.transport,
+      };
+    });
+    return {
+      ...day,
+      title: rd?.title?.trim() || day.title,
+      summary: rd?.summary?.trim() || day.summary,
+      activities,
+    };
+  });
+
+  return {
+    ...trip,
+    name: raw.name?.trim() || trip.name,
+    subtitle: raw.subtitle?.trim() || trip.subtitle,
+    description: raw.description?.trim() || trip.description,
+    days,
+    contentLang: normalizeLocale(targetLang),
+  };
+}
+
+/**
+ * Re-translates an existing trip's user-facing text into `targetLang`, reusing
+ * the same Gemini-first → OpenAI-compatible provider fallback chain. Geocodable
+ * fields (locations, addresses), times, ids, images and coordinates are
+ * preserved untouched.
+ */
+export async function translateTrip(
+  trip: Trip,
+  targetLang: string,
+): Promise<TranslateTripResult> {
+  const lang = languageName(targetLang);
+  const prompt = buildTranslatePrompt(trip, lang);
+
+  const geminiKey = process.env.GEMINI_API_KEY;
+  const compatProviders = buildProviders();
+  if (!geminiKey && compatProviders.length === 0) {
+    throw new AIError("Nessuna chiave AI configurata.", "no_provider");
+  }
+
+  const attempts: { id: AIProvider; getText: () => Promise<string> }[] = [];
+  if (geminiKey) {
+    attempts.push({
+      id: "gemini",
+      getText: async () => {
+        try {
+          return await callGeminiActivity(
+            geminiKey,
+            prompt,
+            GEMINI_PRIMARY_MODEL,
+            translateResponseSchema,
+          );
+        } catch (e) {
+          if (
+            e instanceof AIError &&
+            (e.code === "unavailable" ||
+              e.code === "rate_limit" ||
+              e.code === "model_not_found") &&
+            GEMINI_FALLBACK_MODEL !== GEMINI_PRIMARY_MODEL
+          ) {
+            return await callGeminiActivity(
+              geminiKey,
+              prompt,
+              GEMINI_FALLBACK_MODEL,
+              translateResponseSchema,
+            );
+          }
+          throw e;
+        }
+      },
+    });
+  }
+  for (const p of compatProviders) {
+    attempts.push({
+      id: p.id,
+      getText: () => callOpenAICompat(p, prompt, translateResponseSchema),
+    });
+  }
+
+  let primaryError: AIError | undefined;
+  for (let i = 0; i < attempts.length; i++) {
+    const { id: provider, getText } = attempts[i];
+    try {
+      const text = await getText();
+      const raw = JSON.parse(extractJsonObject(text)) as RawTranslatedTrip;
+      return { trip: mergeTranslatedTrip(trip, raw, targetLang), provider };
+    } catch (err) {
+      let aiErr: AIError;
+      if (err instanceof AIError) {
+        aiErr = err;
+      } else if (err instanceof SyntaxError) {
+        aiErr = new AIError(
+          "Risposta AI non in formato JSON valido.",
+          "empty",
+          undefined,
+          provider,
+        );
+      } else {
+        throw err;
+      }
+      if (i === 0) primaryError = aiErr;
+      const isLast = i === attempts.length - 1;
+      if (isLast || !FALLBACK_CODES.has(aiErr.code)) throw aiErr;
+    }
+  }
+
+  throw primaryError ?? new AIError("Errore sconosciuto.");
+}
+
+// ───────────────────────── Trip form voice parsing ─────────────────────────
+
+const parseTripFormSchema = {
+  type: "object",
+  properties: {
+    destination: { type: "string" },
+    arrival: { type: "string" },
+    departure: { type: "string" },
+    accommodations: { type: "array", items: { type: "string" } },
+    notes: { type: "string" },
+  },
+} as const;
+
+interface RawParsedTripForm {
+  destination?: string;
+  arrival?: string;
+  departure?: string;
+  accommodations?: string[];
+  notes?: string;
+}
+
+export interface ParseTripFormInput {
+  transcript: string;
+  language?: string;
+  /** YYYY-MM-DD anchor for relative dates ("next weekend", …). */
+  referenceDate?: string;
+}
+
+export interface ParsedTripForm {
+  destination?: string;
+  /** datetime-local compatible: YYYY-MM-DDTHH:MM */
+  arrival?: string;
+  departure?: string;
+  accommodations?: string[];
+  notes?: string;
+}
+
+export interface ParseTripFormResult {
+  form: ParsedTripForm;
+  provider: AIProvider;
+}
+
+function normalizeDateTimeLocal(value: string, defaultTime: string): string | undefined {
+  const trimmed = value.trim();
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(trimmed)) {
+    return trimmed.slice(0, 16);
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return `${trimmed}T${defaultTime}`;
+  }
+  return undefined;
+}
+
+function normalizeParsedTripForm(raw: RawParsedTripForm): ParsedTripForm {
+  const form: ParsedTripForm = {};
+  const dest = raw.destination?.trim();
+  if (dest) form.destination = dest;
+
+  const arrival = raw.arrival?.trim()
+    ? normalizeDateTimeLocal(raw.arrival, "10:00")
+    : undefined;
+  const departure = raw.departure?.trim()
+    ? normalizeDateTimeLocal(raw.departure, "18:00")
+    : undefined;
+  if (arrival) form.arrival = arrival;
+  if (departure) form.departure = departure;
+
+  const accs = Array.isArray(raw.accommodations)
+    ? raw.accommodations.map((a) => a?.trim()).filter((a): a is string => !!a)
+    : [];
+  if (accs.length > 0) form.accommodations = accs;
+
+  const notes = raw.notes?.trim();
+  if (notes) form.notes = notes;
+
+  if (
+    form.arrival &&
+    form.departure &&
+    form.arrival >= form.departure
+  ) {
+    delete form.departure;
+  }
+
+  return form;
+}
+
+function buildParseTripFormPrompt(input: ParseTripFormInput): string {
+  const ref =
+    input.referenceDate?.trim() ||
+    new Date().toISOString().slice(0, 10);
+  const lang = languageName(input.language);
+  return [
+    `Sei un assistente che estrae informazioni di viaggio da un testo parlato o scritto liberamente.`,
+    `Lingua dell'utente: ${lang}.`,
+    `Data di riferimento (oggi): ${ref}. Usala per interpretare date relative ("prossimo weekend", "tra 2 settimane", "next Friday").`,
+    `Regole:`,
+    `- Estrai SOLO ciò che è esplicito o chiaramente inferibile dal testo.`,
+    `- NON inventare destinazione o date se assenti o ambigue: usa stringa vuota "" per i campi mancanti.`,
+    `- "destination": città/area con paese se possibile (es. "Lisbona, Portogallo").`,
+    `- "arrival" e "departure": formato "YYYY-MM-DDTHH:MM" (24h). Se manca l'ora usa 10:00 per arrivo e 18:00 per partenza.`,
+    `- "accommodations": array di nomi/indirizzi hotel menzionati (array vuoto se nessuno).`,
+    `- "notes": preferenze stile viaggio, budget, interessi — testo libero (stringa vuota se nessuna).`,
+    `- Rispondi SOLO con JSON valido conforme allo schema.`,
+    ``,
+    `Testo utente:`,
+    input.transcript.trim(),
+  ].join("\n");
+}
+
+/**
+ * Parses free-form speech/text into structured new-trip form fields.
+ * Uses the same Gemini-first → OpenAI-compatible fallback chain.
+ */
+export async function parseTripFormFromSpeech(
+  input: ParseTripFormInput,
+): Promise<ParseTripFormResult> {
+  const transcript = input.transcript?.trim();
+  if (!transcript) {
+    throw new AIError("Testo vuoto.", "bad_request");
+  }
+
+  const prompt = buildParseTripFormPrompt(input);
+  const geminiKey = process.env.GEMINI_API_KEY;
+  const compatProviders = buildProviders();
+  if (!geminiKey && compatProviders.length === 0) {
+    throw new AIError("Nessuna chiave AI configurata.", "no_provider");
+  }
+
+  const attempts: { id: AIProvider; getText: () => Promise<string> }[] = [];
+  if (geminiKey) {
+    attempts.push({
+      id: "gemini",
+      getText: async () => {
+        try {
+          return await callGeminiActivity(
+            geminiKey,
+            prompt,
+            GEMINI_PRIMARY_MODEL,
+            parseTripFormSchema,
+          );
+        } catch (e) {
+          if (
+            e instanceof AIError &&
+            (e.code === "unavailable" ||
+              e.code === "rate_limit" ||
+              e.code === "model_not_found") &&
+            GEMINI_FALLBACK_MODEL !== GEMINI_PRIMARY_MODEL
+          ) {
+            return await callGeminiActivity(
+              geminiKey,
+              prompt,
+              GEMINI_FALLBACK_MODEL,
+              parseTripFormSchema,
+            );
+          }
+          throw e;
+        }
+      },
+    });
+  }
+  for (const p of compatProviders) {
+    attempts.push({
+      id: p.id,
+      getText: () => callOpenAICompat(p, prompt, parseTripFormSchema),
+    });
+  }
+
+  let primaryError: AIError | undefined;
+  for (let i = 0; i < attempts.length; i++) {
+    const { id: provider, getText } = attempts[i];
+    try {
+      const text = await getText();
+      const raw = JSON.parse(extractJsonObject(text)) as RawParsedTripForm;
+      return { form: normalizeParsedTripForm(raw), provider };
+    } catch (err) {
+      let aiErr: AIError;
+      if (err instanceof AIError) {
+        aiErr = err;
+      } else if (err instanceof SyntaxError) {
+        aiErr = new AIError(
+          "Risposta AI non in formato JSON valido.",
+          "empty",
+          undefined,
+          provider,
+        );
+      } else {
+        throw err;
+      }
+      if (i === 0) primaryError = aiErr;
+      const isLast = i === attempts.length - 1;
+      if (isLast || !FALLBACK_CODES.has(aiErr.code)) throw aiErr;
+    }
+  }
+
   throw primaryError ?? new AIError("Errore sconosciuto.");
 }

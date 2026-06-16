@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useTranslations } from "next-intl";
 import type { Accommodation, Day, Trip } from "../types";
 
 interface ManageAccommodationsDialogProps {
@@ -56,6 +57,8 @@ export default function ManageAccommodationsDialog({
   trip,
   onSave,
 }: ManageAccommodationsDialogProps) {
+  const t = useTranslations("manageAccommodations");
+  const tCommon = useTranslations("common");
   // Working copies — seeded once on mount via the lazy `useState` form
   // so the very first render of the dialog already reflects the trip.
   const [drafts, setDrafts] = useState<DraftAccommodation[]>(() =>
@@ -147,7 +150,7 @@ export default function ManageAccommodationsDialog({
     >
       <button
         type="button"
-        aria-label="Chiudi"
+        aria-label={tCommon("close")}
         className="absolute inset-0 bg-black/70 backdrop-blur-sm"
         onClick={onClose}
       />
@@ -156,17 +159,17 @@ export default function ManageAccommodationsDialog({
         <div className="flex items-center justify-between border-b border-white/5 px-5 py-4">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-widest text-emerald-400/70">
-              Alloggi
+              {t("kicker")}
             </p>
             <h2 className="mt-0.5 text-lg font-bold text-white">
-              Gestisci alloggi
+              {t("title")}
             </h2>
           </div>
           <button
             type="button"
             onClick={onClose}
             className="rounded-lg p-2 text-white/50 transition hover:bg-white/5 hover:text-white"
-            aria-label="Chiudi"
+            aria-label={tCommon("close")}
           >
             ✕
           </button>
@@ -177,16 +180,18 @@ export default function ManageAccommodationsDialog({
           <div>
             <div className="flex items-center justify-between">
               <label className="block text-[11px] font-medium uppercase tracking-wide text-white/50">
-                I tuoi alloggi
+                {t("yourAccommodations")}
               </label>
               <span className="text-[11px] text-white/35">
-                {drafts.filter((d) => d.name.trim()).length} totali
+                {t("total", {
+                  count: drafts.filter((d) => d.name.trim()).length,
+                })}
               </span>
             </div>
             <div className="mt-2 space-y-2">
               {drafts.length === 0 ? (
                 <p className="rounded-xl border border-dashed border-white/10 px-3 py-4 text-center text-xs text-white/40">
-                  Nessun alloggio. Aggiungine uno per associarlo ai giorni.
+                  {t("empty")}
                 </p>
               ) : (
                 drafts.map((d) => (
@@ -198,13 +203,13 @@ export default function ManageAccommodationsDialog({
                       type="text"
                       value={d.name}
                       onChange={(e) => renameRow(d.id, e.target.value)}
-                      placeholder="Es. Hotel Lisboa Plaza"
+                      placeholder={t("namePlaceholder")}
                       className="w-full rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2 text-sm text-white placeholder-white/30 outline-none transition focus:border-emerald-400/40 focus:bg-white/[0.04]"
                     />
                     <button
                       type="button"
                       onClick={() => removeRow(d.id)}
-                      aria-label="Rimuovi alloggio"
+                      aria-label={tCommon("removeAccommodation")}
                       className="rounded-lg border border-white/10 bg-white/[0.02] px-2 py-2 text-white/40 transition hover:border-red-400/30 hover:bg-red-500/10 hover:text-red-300"
                     >
                       <svg
@@ -243,7 +248,7 @@ export default function ManageAccommodationsDialog({
                   <path d="M12 5v14" />
                   <path d="M5 12h14" />
                 </svg>
-                Aggiungi alloggio
+                {tCommon("addAccommodation")}
               </button>
             </div>
           </div>
@@ -251,12 +256,9 @@ export default function ManageAccommodationsDialog({
           {/* Day-to-accommodation assignment */}
           <div>
             <label className="block text-[11px] font-medium uppercase tracking-wide text-white/50">
-              Assegna i giorni
+              {t("assignDays")}
             </label>
-            <p className="mt-1 text-[11px] text-white/35">
-              Per ogni giorno, scegli l&apos;alloggio in cui dormi quella
-              notte. Se non lo specifichi viene usato il primo della lista.
-            </p>
+            <p className="mt-1 text-[11px] text-white/35">{t("assignHint")}</p>
             <div className="mt-2 space-y-1.5">
               {trip.days.map((day) => {
                 const current = assignments[day.id] ?? null;
@@ -282,7 +284,7 @@ export default function ManageAccommodationsDialog({
                       className="ml-auto rounded-lg border border-white/10 bg-white/[0.02] px-2 py-1.5 text-xs text-white outline-none transition focus:border-emerald-400/40"
                     >
                       <option value="" className="bg-[#1a1a1a]">
-                        — nessuno —
+                        {t("none")}
                       </option>
                       {drafts
                         .filter((d) => d.name.trim())
@@ -315,14 +317,14 @@ export default function ManageAccommodationsDialog({
             onClick={onClose}
             className="rounded-xl px-3.5 py-2 text-sm font-medium text-white/70 transition hover:bg-white/5 hover:text-white"
           >
-            Annulla
+            {tCommon("cancel")}
           </button>
           <button
             type="button"
             onClick={handleSave}
             className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-400"
           >
-            Salva
+            {tCommon("save")}
           </button>
         </div>
       </div>

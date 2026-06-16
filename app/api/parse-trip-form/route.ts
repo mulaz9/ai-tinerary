@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import {
-  generateActivity,
-  GenerateActivityInput,
+  parseTripFormFromSpeech,
+  ParseTripFormInput,
   AIError,
   providerLabel,
 } from "../../../lib/ai";
@@ -9,54 +9,32 @@ import {
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
-  let body: Partial<GenerateActivityInput>;
+  let body: Partial<ParseTripFormInput>;
   try {
-    body = (await req.json()) as Partial<GenerateActivityInput>;
+    body = (await req.json()) as Partial<ParseTripFormInput>;
   } catch {
     return NextResponse.json({ error: "Body JSON non valido." }, { status: 400 });
   }
 
-  const destination = body.destination?.trim();
-  const placeOfInterest = body.placeOfInterest?.trim();
-  const accommodation = body.accommodation?.trim() || undefined;
-  const dayDate = body.dayDate?.trim() || undefined;
-  const startTime = body.startTime?.trim() || undefined;
-  const notes = body.notes?.trim() || undefined;
+  const transcript = body.transcript?.trim();
   const language = body.language?.trim() || undefined;
-  const existingActivities = Array.isArray(body.existingActivities)
-    ? body.existingActivities
-        .map((a) => ({
-          title: typeof a?.title === "string" ? a.title.trim() : "",
-          location: typeof a?.location === "string" ? a.location.trim() : "",
-        }))
-        .filter((a) => a.title || a.location)
-    : undefined;
-  const durationMins =
-    typeof body.durationMins === "number" && body.durationMins > 0
-      ? Math.round(body.durationMins)
-      : undefined;
+  const referenceDate = body.referenceDate?.trim() || undefined;
 
-  if (!destination || !placeOfInterest) {
+  if (!transcript) {
     return NextResponse.json(
-      { error: "Campi obbligatori: destination, placeOfInterest." },
+      { error: "Campo obbligatorio: transcript." },
       { status: 400 },
     );
   }
 
   try {
-    const { activity, provider } = await generateActivity({
-      destination,
-      placeOfInterest,
-      accommodation,
-      dayDate,
-      startTime,
-      durationMins,
-      notes,
+    const { form, provider } = await parseTripFormFromSpeech({
+      transcript,
       language,
-      existingActivities,
+      referenceDate,
     });
     return NextResponse.json({
-      activity,
+      form,
       provider,
       providerLabel: providerLabel(provider),
     });

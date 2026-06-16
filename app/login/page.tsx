@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { createSupabaseBrowserClient } from "../../lib/supabase/client";
 import { loadUserTrips } from "../../lib/trips-store";
 
@@ -12,6 +13,8 @@ type Tab = "signin" | "signup";
 type View = "form" | "forgot";
 
 function LoginInner() {
+  const t = useTranslations("login");
+  const tCommon = useTranslations("common");
   const params = useSearchParams();
   const router = useRouter();
   const errorParam = params.get("error");
@@ -30,7 +33,7 @@ function LoginInner() {
   const [emailLoading, setEmailLoading] = useState(false);
 
   const [error, setError] = useState<string | null>(
-    errorParam ? "Accesso non riuscito, riprova." : null,
+    errorParam ? t("errorLoginFailed") : null,
   );
   const [info, setInfo] = useState<string | null>(null);
 
@@ -57,22 +60,16 @@ function LoginInner() {
   }, []);
 
   const heading = useMemo(() => {
-    if (view === "forgot") return "Reimposta password";
-    if (signedOut) return "A presto";
-    return tab === "signin" ? "Bentornato" : "Crea il tuo account";
-  }, [view, signedOut, tab]);
+    if (view === "forgot") return t("headingForgot");
+    if (signedOut) return t("headingSignedOut");
+    return tab === "signin" ? t("headingSignin") : t("headingSignup");
+  }, [view, signedOut, tab, t]);
 
   const subheading = useMemo(() => {
-    if (view === "forgot") {
-      return "Inserisci l'email del tuo account: ti invieremo un link per scegliere una nuova password.";
-    }
-    if (signedOut) {
-      return "Sei uscito dal tuo account. Puoi rientrare o continuare come ospite.";
-    }
-    return tab === "signin"
-      ? "Accedi per sincronizzare i tuoi viaggi su tutti i dispositivi, oppure prosegui senza account."
-      : "Registrati per salvare i tuoi viaggi e ritrovarli ovunque.";
-  }, [view, signedOut, tab]);
+    if (view === "forgot") return t("subForgot");
+    if (signedOut) return t("subSignedOut");
+    return tab === "signin" ? t("subSignin") : t("subSignup");
+  }, [view, signedOut, tab, t]);
 
   function clearMessages() {
     setError(null);
@@ -91,9 +88,7 @@ function LoginInner() {
     try {
       const supabase = createSupabaseBrowserClient();
       if (!supabase) {
-        throw new Error(
-          "Supabase non configurato. Imposta NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local",
-        );
+        throw new Error(t("errorSupabase"));
       }
       const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(
         next,
@@ -106,9 +101,9 @@ function LoginInner() {
     } catch (e) {
       console.error(e);
       const msg =
-        e instanceof Error && e.message.startsWith("Supabase non configurato")
+        e instanceof Error && e.message === t("errorSupabase")
           ? e.message
-          : "Impossibile avviare l'accesso. Controlla la configurazione.";
+          : t("errorCannotStart");
       setError(msg);
       setOauthLoading(false);
     }
@@ -120,16 +115,16 @@ function LoginInner() {
 
     const trimmedEmail = email.trim();
     if (!trimmedEmail || !password) {
-      setError("Inserisci email e password.");
+      setError(t("errorNoCredentials"));
       return;
     }
     if (tab === "signup") {
       if (password.length < 8) {
-        setError("La password deve avere almeno 8 caratteri.");
+        setError(t("errorShortPassword"));
         return;
       }
       if (password !== confirmPassword) {
-        setError("Le password non coincidono.");
+        setError(t("errorPasswordMismatch"));
         return;
       }
     }
@@ -138,9 +133,7 @@ function LoginInner() {
     try {
       const supabase = createSupabaseBrowserClient();
       if (!supabase) {
-        throw new Error(
-          "Supabase non configurato. Imposta NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local",
-        );
+        throw new Error(t("errorSupabase"));
       }
 
       if (tab === "signin") {
@@ -172,14 +165,12 @@ function LoginInner() {
         router.refresh();
         return;
       }
-      setInfo(
-        `Ti abbiamo inviato un'email di conferma a ${trimmedEmail}. Clicca sul link per attivare l'account.`,
-      );
+      setInfo(t("confirmEmailSent", { email: trimmedEmail }));
       setPassword("");
       setConfirmPassword("");
     } catch (err) {
       console.error(err);
-      setError(translateAuthError(err));
+      setError(translateAuthError(err, t));
     } finally {
       setEmailLoading(false);
     }
@@ -191,16 +182,14 @@ function LoginInner() {
 
     const trimmed = resetEmail.trim();
     if (!trimmed) {
-      setError("Inserisci la tua email.");
+      setError(t("errorNoEmail"));
       return;
     }
     setEmailLoading(true);
     try {
       const supabase = createSupabaseBrowserClient();
       if (!supabase) {
-        throw new Error(
-          "Supabase non configurato. Imposta NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local",
-        );
+        throw new Error(t("errorSupabase"));
       }
       const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(
         "/auth/update-password",
@@ -209,12 +198,10 @@ function LoginInner() {
         redirectTo,
       });
       if (error) throw error;
-      setInfo(
-        `Se ${trimmed} è registrato, riceverai a breve un'email con il link per reimpostare la password.`,
-      );
+      setInfo(t("resetEmailSent", { email: trimmed }));
     } catch (err) {
       console.error(err);
-      setError(translateAuthError(err));
+      setError(translateAuthError(err, t));
     } finally {
       setEmailLoading(false);
     }
@@ -228,7 +215,7 @@ function LoginInner() {
     <div className="flex min-h-screen items-center justify-center bg-[#121212] px-5 py-10 text-white">
       <div className="w-full max-w-sm rounded-3xl border border-white/10 bg-white/3 p-8 shadow-2xl backdrop-blur">
         <p className="text-[11px] font-semibold uppercase tracking-widest text-emerald-400/70">
-          AI-tinerary
+          {t("kicker")}
         </p>
         <h1 className="mt-2 text-2xl font-bold leading-tight tracking-tight text-white">
           {heading}
@@ -241,7 +228,7 @@ function LoginInner() {
           <>
             <div
               role="tablist"
-              aria-label="Accedi o registrati"
+              aria-label={t("tabsLabel")}
               className="mt-6 grid grid-cols-2 gap-1 rounded-full border border-white/10 bg-white/5 p-1 text-xs font-semibold"
             >
               <button
@@ -255,7 +242,7 @@ function LoginInner() {
                     : "text-white/60 hover:text-white"
                 }`}
               >
-                Accedi
+                {t("signin")}
               </button>
               <button
                 type="button"
@@ -268,7 +255,7 @@ function LoginInner() {
                     : "text-white/60 hover:text-white"
                 }`}
               >
-                Registrati
+                {t("signup")}
               </button>
             </div>
 
@@ -278,7 +265,7 @@ function LoginInner() {
                   htmlFor="email"
                   className="mb-1.5 block text-[11px] font-semibold uppercase tracking-widest text-white/40"
                 >
-                  Email
+                  {t("email")}
                 </label>
                 <input
                   id="email"
@@ -288,7 +275,7 @@ function LoginInner() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white placeholder:text-white/30 focus:border-emerald-400/50 focus:outline-none focus:ring-2 focus:ring-emerald-400/30"
-                  placeholder="tua@email.com"
+                  placeholder={t("emailPlaceholder")}
                 />
               </div>
               <div>
@@ -296,7 +283,7 @@ function LoginInner() {
                   htmlFor="password"
                   className="mb-1.5 block text-[11px] font-semibold uppercase tracking-widest text-white/40"
                 >
-                  Password
+                  {t("password")}
                 </label>
                 <input
                   id="password"
@@ -310,7 +297,9 @@ function LoginInner() {
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white placeholder:text-white/30 focus:border-emerald-400/50 focus:outline-none focus:ring-2 focus:ring-emerald-400/30"
                   placeholder={
-                    tab === "signup" ? "Almeno 8 caratteri" : "La tua password"
+                    tab === "signup"
+                      ? t("passwordPlaceholderSignup")
+                      : t("passwordPlaceholderSignin")
                   }
                 />
               </div>
@@ -320,7 +309,7 @@ function LoginInner() {
                     htmlFor="confirm-password"
                     className="mb-1.5 block text-[11px] font-semibold uppercase tracking-widest text-white/40"
                   >
-                    Conferma password
+                    {t("confirmPassword")}
                   </label>
                   <input
                     id="confirm-password"
@@ -331,7 +320,7 @@ function LoginInner() {
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white placeholder:text-white/30 focus:border-emerald-400/50 focus:outline-none focus:ring-2 focus:ring-emerald-400/30"
-                    placeholder="Ripeti la password"
+                    placeholder={t("confirmPasswordPlaceholder")}
                   />
                 </div>
               ) : null}
@@ -347,7 +336,7 @@ function LoginInner() {
                     }}
                     className="text-xs text-white/50 underline-offset-2 hover:text-white/80 hover:underline"
                   >
-                    Password dimenticata?
+                    {t("forgotPassword")}
                   </button>
                 </div>
               ) : null}
@@ -358,16 +347,16 @@ function LoginInner() {
                 className="mt-1 inline-flex w-full items-center justify-center gap-2 rounded-full bg-emerald-400 px-4 py-3 text-sm font-semibold text-neutral-900 transition hover:bg-emerald-300 disabled:opacity-60"
               >
                 {emailLoading
-                  ? "Attendere…"
+                  ? t("wait")
                   : tab === "signin"
-                    ? "Accedi"
-                    : "Crea account"}
+                    ? t("signin")
+                    : t("createAccount")}
               </button>
             </form>
 
             <div className="my-5 flex items-center gap-3 text-[10px] font-semibold uppercase tracking-widest text-white/30">
               <span className="h-px flex-1 bg-white/10" aria-hidden="true" />
-              oppure
+              {t("or")}
               <span className="h-px flex-1 bg-white/10" aria-hidden="true" />
             </div>
 
@@ -378,7 +367,7 @@ function LoginInner() {
               className="inline-flex w-full items-center justify-center gap-3 rounded-full bg-white px-4 py-3 text-sm font-semibold text-neutral-900 transition hover:bg-white/90 disabled:opacity-60"
             >
               <GoogleIcon />
-              {oauthLoading ? "Reindirizzamento…" : "Continua con Google"}
+              {oauthLoading ? t("redirecting") : t("continueWithGoogle")}
             </button>
           </>
         ) : (
@@ -388,7 +377,7 @@ function LoginInner() {
                 htmlFor="reset-email"
                 className="mb-1.5 block text-[11px] font-semibold uppercase tracking-widest text-white/40"
               >
-                Email
+                {t("email")}
               </label>
               <input
                 id="reset-email"
@@ -398,7 +387,7 @@ function LoginInner() {
                 value={resetEmail}
                 onChange={(e) => setResetEmail(e.target.value)}
                 className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white placeholder:text-white/30 focus:border-emerald-400/50 focus:outline-none focus:ring-2 focus:ring-emerald-400/30"
-                placeholder="tua@email.com"
+                placeholder={t("emailPlaceholder")}
               />
             </div>
             <button
@@ -406,7 +395,7 @@ function LoginInner() {
               disabled={emailLoading}
               className="mt-1 inline-flex w-full items-center justify-center gap-2 rounded-full bg-emerald-400 px-4 py-3 text-sm font-semibold text-neutral-900 transition hover:bg-emerald-300 disabled:opacity-60"
             >
-              {emailLoading ? "Invio…" : "Invia link di reset"}
+              {emailLoading ? t("sending") : t("sendResetLink")}
             </button>
             <button
               type="button"
@@ -416,7 +405,7 @@ function LoginInner() {
               }}
               className="inline-flex w-full items-center justify-center text-xs text-white/50 hover:text-white/80"
             >
-              ← Torna al login
+              {t("backToLogin")}
             </button>
           </form>
         )}
@@ -434,7 +423,7 @@ function LoginInner() {
 
         <div className="my-5 flex items-center gap-3 text-[10px] font-semibold uppercase tracking-widest text-white/30">
           <span className="h-px flex-1 bg-white/10" aria-hidden="true" />
-          oppure
+          {t("or")}
           <span className="h-px flex-1 bg-white/10" aria-hidden="true" />
         </div>
 
@@ -443,7 +432,7 @@ function LoginInner() {
           onClick={continueAsGuest}
           className="group inline-flex w-full items-center justify-center gap-2 rounded-full border border-white/15 bg-white/5 px-4 py-3 text-sm font-semibold text-white/90 transition hover:border-white/25 hover:bg-white/10"
         >
-          Usa l&apos;app senza accedere
+          {t("useWithoutAccount")}
           <span
             aria-hidden="true"
             className="transition-transform group-hover:translate-x-0.5"
@@ -453,24 +442,26 @@ function LoginInner() {
         </button>
 
         <p className="mt-3 text-center text-[11px] leading-relaxed text-white/40">
-          I viaggi verranno salvati solo su{" "}
-          <strong className="font-semibold text-white/60">questo dispositivo</strong>.
-          {localTripCount && localTripCount > 0
-            ? ` Hai già ${localTripCount} ${
-                localTripCount === 1 ? "viaggio salvato" : "viaggi salvati"
-              } qui.`
-            : ""}{" "}
-          Puoi accedere più tardi per sincronizzarli.
+          {t.rich("tripsSavedNotice", {
+            device: t("savedOnThisDevice"),
+            here:
+              localTripCount && localTripCount > 0
+                ? t("tripsHere", { count: localTripCount })
+                : "",
+            strong: (chunks) => (
+              <strong className="font-semibold text-white/60">{chunks}</strong>
+            ),
+          })}
         </p>
 
         <p className="mt-6 border-t border-white/5 pt-5 text-center text-[11px] text-white/30">
-          Accedendo accetti di sincronizzare i tuoi itinerari con Supabase.
+          {t("supabaseTerms")}
           <br />
           <Link
             href="/"
             className="mt-1 inline-block text-white/40 underline-offset-2 hover:text-white/70 hover:underline"
           >
-            Torna alla home
+            {tCommon("backHome")}
           </Link>
         </p>
       </div>
@@ -478,24 +469,27 @@ function LoginInner() {
   );
 }
 
-function translateAuthError(err: unknown): string {
-  if (!(err instanceof Error)) return "Si è verificato un errore. Riprova.";
+function translateAuthError(
+  err: unknown,
+  t: (key: string) => string,
+): string {
+  if (!(err instanceof Error)) return t("errorGeneric");
+  if (err.message === t("errorSupabase")) return err.message;
   const msg = err.message.toLowerCase();
-  if (msg.startsWith("supabase non configurato")) return err.message;
   if (msg.includes("invalid login credentials")) {
-    return "Email o password non validi.";
+    return t("errorInvalidCredentials");
   }
   if (msg.includes("email not confirmed")) {
-    return "Email non confermata. Controlla la tua casella di posta.";
+    return t("errorEmailNotConfirmed");
   }
   if (msg.includes("user already registered")) {
-    return "Questa email è già registrata. Prova ad accedere.";
+    return t("errorAlreadyRegistered");
   }
   if (msg.includes("rate limit") || msg.includes("too many requests")) {
-    return "Troppi tentativi. Riprova tra qualche minuto.";
+    return t("errorTooManyRequests");
   }
   if (msg.includes("password should be at least")) {
-    return "La password è troppo corta.";
+    return t("errorPasswordTooShort");
   }
   return err.message;
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useTranslations } from "next-intl";
 import type { Accommodation, Activity, Day } from "../types";
 import type { WeatherInfo } from "../lib/weather";
 import ActivityCard from "./ActivityCard";
@@ -38,6 +39,7 @@ const DayTimeline = ({
   onChangeDays,
   onActivityShowOnMap,
 }: DayTimelineProps) => {
+  const t = useTranslations("dayTimeline");
   /**
    * Resolves the accommodation a day is associated to: explicit
    * assignment first, falling back to the trip's first accommodation.
@@ -172,12 +174,8 @@ const DayTimeline = ({
     <div className="mt-8 animate-fade-in">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h3 className="text-lg font-semibold text-white">Timeline</h3>
-          <p className="text-xs text-white/50">
-            Spunta le attività completate · modifica l&apos;orario di
-            inizio per riordinarle · aggiungi nuove tappe in qualsiasi
-            momento
-          </p>
+          <h3 className="text-lg font-semibold text-white">{t("title")}</h3>
+          <p className="text-xs text-white/50">{t("hint")}</p>
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -185,7 +183,7 @@ const DayTimeline = ({
             onClick={() => setAll(!allOpen)}
             className="rounded-full border border-white/[0.06] bg-white/[0.03] px-3 py-1 text-[11px] font-medium text-white/60 transition hover:bg-white/[0.06] hover:text-white/80"
           >
-            {allOpen ? "Comprimi tutto" : "Espandi tutto"}
+            {allOpen ? t("collapseAll") : t("expandAll")}
           </button>
           <div className="h-1.5 w-24 overflow-hidden rounded-full bg-white/10">
             <div
@@ -308,14 +306,13 @@ const DayTimeline = ({
                           <path d="M12 5v14" />
                           <path d="M5 12h14" />
                         </svg>
-                        Aggiungi attività a {day.title}
+                        {t("addActivityTo", { title: day.title })}
                       </button>
                     ) : null}
 
                     {day.activities.length === 0 ? (
                       <p className="rounded-xl border border-dashed border-white/10 px-3 py-6 text-center text-xs text-white/40">
-                        Nessuna attività in questo giorno. Aggiungine una con il
-                        pulsante qui sopra.
+                        {t("noActivities")}
                       </p>
                     ) : (
                       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-2">
@@ -330,6 +327,7 @@ const DayTimeline = ({
                             <ActivityCard
                               key={activity.id}
                               activity={activityWithPhoto}
+                              destination={destination}
                               checked={!!done[activity.id]}
                               onToggle={(next) =>
                                 setDone((prev) => ({
@@ -403,6 +401,7 @@ const DayTimeline = ({
         }
         dayDate={addTarget?.date}
         existingActivities={addTarget?.activities ?? []}
+        tripActivities={days.flatMap((d) => d.activities)}
         dayId={addTarget?.id ?? ""}
         onAdd={(activity) => {
           if (!addTarget) return;

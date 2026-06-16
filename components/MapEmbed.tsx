@@ -1,3 +1,6 @@
+import { useTranslations } from "next-intl";
+import { GoogleMapsPinIcon } from "./BrandIcons";
+
 interface MapEmbedProps {
   mapsUrl?: string;
   label?: string;
@@ -6,28 +9,30 @@ interface MapEmbedProps {
 }
 
 const pillClass =
-  "inline-flex items-center gap-1.5 rounded-full border border-emerald-400/15 bg-emerald-400/[0.06] px-2.5 py-1 text-[11px] font-semibold text-emerald-300/80 transition hover:bg-emerald-400/10";
+  "inline-flex items-center gap-1.5 rounded-full border border-[#4285f4]/30 bg-[#4285f4]/10 px-2.5 py-1 text-[11px] font-semibold text-[#8ab4f8] transition hover:bg-[#4285f4]/20";
 
 export default function MapEmbed({
   mapsUrl,
-  label = "Maps",
+  label,
   onShowOnMap,
 }: MapEmbedProps) {
+  const t = useTranslations("mapEmbed");
+  const text = label ?? t("label");
   if (!mapsUrl && !onShowOnMap) return null;
 
   if (onShowOnMap) {
     return (
       <button type="button" onClick={onShowOnMap} className={pillClass}>
-        <span className="h-1 w-1 rounded-full bg-emerald-400/70" />
-        {label}
+        <GoogleMapsPinIcon size={12} />
+        {text}
       </button>
     );
   }
 
   return (
     <a href={mapsUrl} target="_blank" rel="noreferrer" className={pillClass}>
-      <span className="h-1 w-1 rounded-full bg-emerald-400/70" />
-      {label}
+      <GoogleMapsPinIcon size={12} />
+      {text}
     </a>
   );
 }

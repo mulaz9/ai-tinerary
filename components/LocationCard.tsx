@@ -1,6 +1,8 @@
+import { useTranslations } from "next-intl";
 import SafeImage from "./SafeImage";
 import MapEmbed from "./MapEmbed";
 import TransportInfo from "./TransportInfo";
+import { TripAdvisorIcon } from "./BrandIcons";
 
 interface LocationCardProps {
   title: string;
@@ -9,6 +11,8 @@ interface LocationCardProps {
   location: string;
   photoUrl?: string;
   mapsUrl?: string;
+  /** TripAdvisor search link for ratings/reviews (restaurants). */
+  reviewsUrl?: string;
   /** Opens this place on the embedded trip map. */
   onShowOnMap?: () => void;
   transport?: Parameters<typeof TransportInfo>[0]["transport"];
@@ -30,6 +34,7 @@ export default function LocationCard({
   location,
   photoUrl,
   mapsUrl,
+  reviewsUrl,
   onShowOnMap,
   transport,
   meta,
@@ -38,6 +43,7 @@ export default function LocationCard({
   onRemove,
   onEditTime,
 }: LocationCardProps) {
+  const t = useTranslations("locationCard");
   return (
     <div
       className={`group relative overflow-hidden rounded-2xl border transition-all duration-200 ${
@@ -52,8 +58,8 @@ export default function LocationCard({
           <button
             type="button"
             onClick={onEditTime}
-            aria-label={`Modifica orario di ${title}`}
-            title="Modifica orario"
+            aria-label={t("editTimeOf", { title })}
+            title={t("editTime")}
             className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-black/50 text-white/70 backdrop-blur transition hover:border-emerald-400/40 hover:bg-emerald-500/15 hover:text-emerald-200"
           >
             <svg
@@ -76,8 +82,8 @@ export default function LocationCard({
           <button
             type="button"
             onClick={onRemove}
-            aria-label={`Rimuovi ${title}`}
-            title="Rimuovi attività"
+            aria-label={t("remove", { title })}
+            title={t("removeActivity")}
             className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-black/50 text-white/70 backdrop-blur transition hover:border-red-400/40 hover:bg-red-500/20 hover:text-red-200"
           >
             <svg
@@ -123,7 +129,7 @@ export default function LocationCard({
               <button
                 type="button"
                 onClick={onEditTime}
-                title="Modifica orario"
+                title={t("editTime")}
                 className="absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-lg bg-black/60 px-2.5 py-1 text-[11px] font-semibold tabular-nums text-emerald-300 backdrop-blur-sm transition hover:bg-black/75 hover:text-emerald-200"
               >
                 <svg
@@ -151,7 +157,7 @@ export default function LocationCard({
             <button
               type="button"
               onClick={onEditTime}
-              title="Aggiungi orario"
+              title={t("addTime")}
               className="absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-black/40 px-2.5 py-1 text-[11px] font-semibold text-white/70 backdrop-blur-sm transition hover:bg-black/60 hover:text-white"
             >
               <svg
@@ -168,7 +174,7 @@ export default function LocationCard({
                 <circle cx="12" cy="12" r="9" />
                 <polyline points="12 7 12 12 15 14" />
               </svg>
-              Imposta orario
+              {t("setTime")}
             </button>
           ) : null}
         </div>
@@ -184,7 +190,7 @@ export default function LocationCard({
               checked={!!checked}
               onChange={(e) => onToggle?.(e.target.checked)}
               className="peer sr-only"
-              aria-label={`Segna come completata: ${title}`}
+              aria-label={t("markDone", { title })}
             />
             <span
               className={`flex h-[18px] w-[18px] items-center justify-center rounded-md border transition-all ${
@@ -243,6 +249,17 @@ export default function LocationCard({
                   </span>
                   {meta}
                   <MapEmbed mapsUrl={mapsUrl} onShowOnMap={onShowOnMap} />
+                  {reviewsUrl ? (
+                    <a
+                      href={reviewsUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1.5 rounded-full border border-[#34e0a1]/30 bg-[#34e0a1]/10 px-2.5 py-1 text-[11px] font-semibold text-[#34e0a1] transition hover:bg-[#34e0a1]/20"
+                    >
+                      <TripAdvisorIcon size={12} />
+                      {t("reviews")}
+                    </a>
+                  ) : null}
                 </div>
 
                 <TransportInfo transport={transport} />

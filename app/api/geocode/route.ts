@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 /**
- * Geocoding proxy: Google Geocoding API (fast) with Nominatim fallback.
+ * Geocoding proxy: free Nominatim / OpenStreetMap only (no API key, no billing).
  *
  * GET  /api/geocode?q=Colosseo, Roma, Italia
  *   → { result: { lat, lon, displayName } | null }
@@ -13,15 +13,8 @@ import { NextResponse } from "next/server";
 export const runtime = "nodejs";
 
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/search";
-const GOOGLE_GEOCODE_URL =
-  "https://maps.googleapis.com/maps/api/geocode/json";
 const USER_AGENT =
   process.env.NOMINATIM_USER_AGENT?.trim() || "ai-tinerary/1.0";
-
-const GOOGLE_KEY =
-  process.env.GOOGLE_MAPS_API_KEY?.trim() ||
-  process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.trim() ||
-  "";
 
 export interface GeocodeResult {
   lat: number;
@@ -53,37 +46,6 @@ function enqueueNominatim<T>(work: () => Promise<T>): Promise<T> {
   const next = nominatimTail.then(run, run);
   nominatimTail = next.catch(() => undefined);
   return next;
-}
-
-async function geocodeGoogle(query: string): Promise<GeocodeResult | null> {
-  if (!GOOGLE_KEY) return null;
-  const url = new URL(GOOGLE_GEOCODE_URL);
-  url.searchParams.set("address", query);
-  url.searchParams.set("key", GOOGLE_KEY);
-
-  try {
-    const res = await fetch(url.toString(), { cache: "no-store" });
-    if (!res.ok) return null;
-    const data: {
-      status: string;
-      results?: Array<{
-        formatted_address: string;
-        geometry: { location: { lat: number; lng: number } };
-      }>;
-    } = await res.json();
-    if (data.status !== "OK" || !data.results?.[0]) return null;
-    const first = data.results[0];
-    const lat = first.geometry.location.lat;
-    const lon = first.geometry.location.lng;
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-    return {
-      lat,
-      lon,
-      displayName: first.formatted_address,
-    };
-  } catch {
-    return null;
-  }
 }
 
 async function geocodeNominatim(query: string): Promise<GeocodeResult | null> {
@@ -120,20 +82,17 @@ async function geocodeNominatim(query: string): Promise<GeocodeResult | null> {
   });
 }
 
-/** Resolve one query; uses cache, then Google, then Nominatim. */
+/** Resolve one query; uses cache, then Nominatim. */
 export async function geocodeOne(query: string): Promise<GeocodeResult | null> {
   const key = normalize(query);
   if (!key) return null;
   if (cache.has(key)) return cache.get(key) ?? null;
 
-  let result = await geocodeGoogle(query);
-  if (!result) result = await geocodeNominatim(query);
+  const result = await geocodeNominatim(query);
 
   cache.set(key, result);
   return result;
 }
-
-const GOOGLE_CONCURRENCY = 8;
 
 async function geocodeMany(queries: string[]): Promise<(GeocodeResult | null)[]> {
   const normalized = queries.map((q) => normalize(q));
@@ -154,25 +113,7 @@ async function geocodeMany(queries: string[]): Promise<(GeocodeResult | null)[]>
 
   if (pending.length === 0) return results;
 
-  if (GOOGLE_KEY) {
-    for (let offset = 0; offset < pending.length; offset += GOOGLE_CONCURRENCY) {
-      const chunk = pending.slice(offset, offset + GOOGLE_CONCURRENCY);
-      const chunkResults = await Promise.all(
-        chunk.map(({ query }) => geocodeGoogle(query)),
-      );
-      for (let j = 0; j < chunk.length; j++) {
-        const { index, query } = chunk[j];
-        let r = chunkResults[j];
-        if (!r) r = await geocodeNominatim(query);
-        const key = normalize(query);
-        cache.set(key, r);
-        results[index] = r;
-      }
-    }
-    return results;
-  }
-
-  // No Google key: Nominatim only, serial.
+  // Nominatim only, serial (rate-limited via the outbound queue).
   for (const { index, query } of pending) {
     results[index] = await geocodeOne(query);
   }

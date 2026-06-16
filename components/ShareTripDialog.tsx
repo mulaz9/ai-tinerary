@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useLocale, useTranslations } from "next-intl";
 import type { SharePermission, TripShare } from "../types";
 import {
   buildShareUrl,
@@ -20,6 +21,9 @@ export default function ShareTripDialog({
   onClose,
   tripId,
 }: ShareTripDialogProps) {
+  const t = useTranslations("shareDialog");
+  const tCommon = useTranslations("common");
+  const locale = useLocale();
   const [permission, setPermission] = useState<SharePermission>("read");
   const [shares, setShares] = useState<TripShare[]>([]);
   const [loading, setLoading] = useState(false);
@@ -79,7 +83,7 @@ export default function ShareTripDialog({
     >
       <button
         type="button"
-        aria-label="Chiudi"
+        aria-label={tCommon("close")}
         className="absolute inset-0 bg-black/70 backdrop-blur-sm"
         onClick={onClose}
       />
@@ -89,17 +93,17 @@ export default function ShareTripDialog({
         <div className="flex items-center justify-between border-b border-white/5 px-5 py-4">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-widest text-emerald-400/70">
-              Condivisione
+              {t("kicker")}
             </p>
             <h2 className="mt-0.5 text-lg font-bold text-white">
-              Condividi viaggio
+              {t("title")}
             </h2>
           </div>
           <button
             type="button"
             onClick={onClose}
             className="rounded-lg p-2 text-white/50 transition hover:bg-white/5 hover:text-white"
-            aria-label="Chiudi"
+            aria-label={tCommon("close")}
           >
             ✕
           </button>
@@ -109,7 +113,7 @@ export default function ShareTripDialog({
           {/* Permission selector */}
           <div>
             <label className="block text-[11px] font-medium uppercase tracking-wide text-white/50">
-              Permessi
+              {t("permissions")}
             </label>
             <div className="mt-2 flex gap-2">
               <button
@@ -121,7 +125,7 @@ export default function ShareTripDialog({
                     : "border-white/10 bg-white/[0.02] text-white/60 hover:bg-white/[0.04]"
                 }`}
               >
-                Sola lettura
+                {t("readOnly")}
               </button>
               <button
                 type="button"
@@ -132,7 +136,7 @@ export default function ShareTripDialog({
                     : "border-white/10 bg-white/[0.02] text-white/60 hover:bg-white/[0.04]"
                 }`}
               >
-                Lettura e scrittura
+                {t("readWrite")}
               </button>
             </div>
           </div>
@@ -147,10 +151,10 @@ export default function ShareTripDialog({
             {loading ? (
               <span className="inline-flex items-center gap-2">
                 <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-emerald-950/30 border-t-emerald-950" />
-                Genero…
+                {tCommon("generating")}
               </span>
             ) : (
-              "Genera link"
+              t("generateLink")
             )}
           </button>
 
@@ -158,7 +162,7 @@ export default function ShareTripDialog({
           {shares.length > 0 && (
             <div>
               <p className="text-[11px] font-medium uppercase tracking-wide text-white/50">
-                Link attivi
+                {t("activeLinks")}
               </p>
               <ul className="mt-2 space-y-2">
                 {shares.map((share) => (
@@ -172,10 +176,10 @@ export default function ShareTripDialog({
                       </p>
                       <p className="mt-0.5 text-[11px] text-white/40">
                         {share.permission === "read"
-                          ? "Sola lettura"
-                          : "Lettura e scrittura"}
+                          ? t("readOnly")
+                          : t("readWrite")}
                         {" · "}
-                        {new Date(share.created_at).toLocaleDateString("it-IT")}
+                        {new Date(share.created_at).toLocaleDateString(locale)}
                       </p>
                     </div>
                     <button
@@ -183,14 +187,14 @@ export default function ShareTripDialog({
                       onClick={() => handleCopy(share.share_token)}
                       className="shrink-0 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-[11px] font-semibold text-white/80 transition hover:bg-white/10"
                     >
-                      {copied === share.share_token ? "Copiato!" : "Copia"}
+                      {copied === share.share_token ? t("copied") : t("copy")}
                     </button>
                     <button
                       type="button"
                       onClick={() => handleRevoke(share.id)}
                       className="shrink-0 rounded-lg border border-red-500/20 bg-red-500/10 px-2.5 py-1.5 text-[11px] font-semibold text-red-300 transition hover:bg-red-500/20"
                     >
-                      Revoca
+                      {t("revoke")}
                     </button>
                   </li>
                 ))}
@@ -206,7 +210,7 @@ export default function ShareTripDialog({
             onClick={onClose}
             className="rounded-xl px-3.5 py-2 text-sm font-medium text-white/70 transition hover:bg-white/5 hover:text-white"
           >
-            Chiudi
+            {tCommon("close")}
           </button>
         </div>
       </div>

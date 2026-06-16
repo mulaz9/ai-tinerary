@@ -1,15 +1,20 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useTranslations } from "next-intl";
 import {
-  APIProvider,
-  AdvancedMarker,
-  InfoWindow,
-  Map as GoogleMap,
-  Polyline,
+  Map as MapGL,
+  Layer,
+  Marker,
+  Popup,
+  Source,
   useMap,
-} from "@vis.gl/react-google-maps";
+  type MapLayerMouseEvent,
+} from "react-map-gl/maplibre";
+import type { FeatureCollection, LineString } from "geojson";
+import "maplibre-gl/dist/maplibre-gl.css";
 import type { Trip } from "../types";
+import { GoogleMapsPinIcon } from "./BrandIcons";
 import {
   buildTripMapCacheKey,
   getTripMapCache,
@@ -20,13 +25,14 @@ import {
 } from "../lib/trip-map-cache";
 import {
   hasTripGeoChanges,
+  hydrateActivityPointsFromTrip,
   mapPointsFromTrip,
   mergeGeoIntoTrip,
   resolveTripMapPoints,
 } from "../lib/trip-map-geo";
 
 /**
- * Interactive trip map (Google Maps).
+ * Interactive trip map (MapLibre GL + OpenFreeMap, no API key / no billing).
  *
  * Coordinates are read from `activity.geo` / `accommodation.geo` on the trip
  * (persisted to Supabase for signed-in users). Missing places are geocoded via
@@ -62,7 +68,8 @@ const DAY_COLORS = [
 
 const ACCOMMODATION_COLOR = "#facc15";
 
-const MAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.trim() ?? "";
+/** Free vector tiles, no API key, no usage billing. */
+const MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
 
 type ActivityPoint = CachedActivityPoint;
 type AccommodationPoint = CachedAccommodationPoint;
@@ -81,6 +88,7 @@ function PopupShell({
   onClose: () => void;
   children: React.ReactNode;
 }) {
+  const tCommon = useTranslations("common");
   return (
     <div className="trip-map-popup relative box-border min-w-[200px] max-w-[272px] px-4 py-3.5 pr-11">
       <button
@@ -90,7 +98,7 @@ function PopupShell({
           onClose();
         }}
         className="absolute right-2.5 top-2.5 flex h-7 w-7 items-center justify-center rounded-md text-[20px] leading-none text-slate-400 transition hover:bg-slate-100 hover:text-slate-800"
-        aria-label="Chiudi"
+        aria-label={tCommon("close")}
       >
         ×
       </button>
@@ -99,46 +107,62 @@ function PopupShell({
   );
 }
 
-function buildPopupContent(p: MapPoint): React.ReactNode {
+function buildPopupContent(
+  p: MapPoint,
+  trip: Trip,
+  t: (key: string, values?: Record<string, string | number>) => string,
+): React.ReactNode {
   if (p.kind === "accommodation") {
+    const acc = trip.accommodations?.find((a) => a.id === p.id);
+    const name = acc?.name ?? p.name;
     return (
       <div className="flex flex-col gap-2 font-sans text-slate-900">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">
-          Alloggio
+          {t("accommodation")}
         </p>
-        <p className="text-sm font-semibold leading-snug">{p.name}</p>
+        <p className="text-sm font-semibold leading-snug">{name}</p>
       </div>
     );
   }
+
+  const activity = trip.days[p.dayIdx]?.activities.find(
+    (a) => a.id === p.activityId,
+  );
+  const title = activity?.title ?? p.title;
+  const time = activity?.time ?? p.time;
+  const location = activity?.location ?? p.location;
+  const description = activity?.description ?? p.description;
+  const mapsUrl = activity?.mapsUrl ?? p.mapsUrl;
+
   return (
     <div className="flex flex-col gap-2 font-sans text-slate-900">
       <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-        Giorno {p.dayIdx + 1}
+        {t("day", { day: p.dayIdx + 1 })}
       </p>
-      <p className="text-sm font-semibold leading-snug">{p.title}</p>
+      <p className="text-sm font-semibold leading-snug">{title}</p>
       <p className="text-xs leading-relaxed text-slate-600">
-        {p.time ? (
-          <span className="font-semibold text-emerald-700">{p.time}</span>
+        {time ? (
+          <span className="font-semibold text-emerald-700">{time}</span>
         ) : null}
-        {p.time && p.location ? (
+        {time && location ? (
           <span className="text-slate-400"> · </span>
         ) : null}
-        {p.location}
+        {location}
       </p>
-      {p.description ? (
+      {description ? (
         <p className="border-t border-slate-200/80 pt-2 text-xs leading-relaxed text-slate-700">
-          {p.description}
+          {description}
         </p>
       ) : null}
-      {p.mapsUrl ? (
+      {mapsUrl ? (
         <a
-          href={p.mapsUrl}
+          href={mapsUrl}
           target="_blank"
           rel="noreferrer"
-          className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 hover:underline"
+          className="mt-1 inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 hover:underline"
         >
-          Apri in Google Maps
-          <span aria-hidden>↗</span>
+          <GoogleMapsPinIcon size={14} />
+          {t("openInGoogleMaps")}
         </a>
       ) : null}
     </div>
@@ -203,41 +227,52 @@ function FitMapBounds({
   points: Array<{ lat: number; lng: number }>;
   disabled?: boolean;
 }) {
-  const map = useMap();
+  const { current: map } = useMap();
 
   useEffect(() => {
     if (disabled || !map || points.length === 0) return;
     if (points.length === 1) {
-      map.setCenter(points[0]);
-      map.setZoom(13);
+      map.flyTo({ center: [points[0].lng, points[0].lat], zoom: 13, duration: 0 });
       return;
     }
-    const bounds = new google.maps.LatLngBounds();
-    for (const p of points) bounds.extend(p);
-    map.fitBounds(bounds, { top: 40, right: 40, bottom: 40, left: 40 });
+    let minLng = points[0].lng;
+    let minLat = points[0].lat;
+    let maxLng = points[0].lng;
+    let maxLat = points[0].lat;
+    for (const p of points) {
+      minLng = Math.min(minLng, p.lng);
+      minLat = Math.min(minLat, p.lat);
+      maxLng = Math.max(maxLng, p.lng);
+      maxLat = Math.max(maxLat, p.lat);
+    }
+    map.fitBounds(
+      [
+        [minLng, minLat],
+        [maxLng, maxLat],
+      ],
+      { padding: 40, duration: 0 },
+    );
   }, [map, points, disabled]);
 
   return null;
 }
 
-/** Centers the map after an InfoWindow opens (popup needs time to lay out). */
+/** Centers the map after a popup opens (popup needs time to lay out). */
 function CenterOnInfoPoint({ infoPoint }: { infoPoint: MapPoint | null }) {
-  const map = useMap();
+  const { current: map } = useMap();
 
   useEffect(() => {
     if (!map || !infoPoint) return;
 
-    const position = {
-      lat: infoPoint.point.lat,
-      lng: infoPoint.point.lon,
-    };
-
     const center = () => {
-      map.panTo(position);
       const zoom = map.getZoom();
-      if (zoom == null || zoom < 14) map.setZoom(14);
-      // Shift view so the popup above the marker stays in frame.
-      map.panBy(0, -140);
+      // Shift view so the popup above the marker stays in frame (offset Y).
+      map.easeTo({
+        center: [infoPoint.point.lon, infoPoint.point.lat],
+        zoom: zoom == null || zoom < 14 ? 14 : zoom,
+        offset: [0, 140],
+        duration: 400,
+      });
     };
 
     const t = window.setTimeout(center, 180);
@@ -252,19 +287,22 @@ function CenterOnInfoPoint({ infoPoint }: { infoPoint: MapPoint | null }) {
   return null;
 }
 
-function TripMapGoogle({
+function TripMapView({
+  trip,
   activities,
   accommodationPoints,
   selectedDay,
   infoPoint,
   onInfoPointChange,
 }: {
+  trip: Trip;
   activities: ActivityPoint[];
   accommodationPoints: AccommodationPoint[];
   selectedDay: number | null;
   infoPoint: MapPoint | null;
   onInfoPointChange: (point: MapPoint | null) => void;
 }) {
+  const t = useTranslations("tripMap");
 
   const visible = useMemo(
     () =>
@@ -274,27 +312,30 @@ function TripMapGoogle({
     [activities, selectedDay],
   );
 
-  const polylines = useMemo(() => {
+  const lineData = useMemo<FeatureCollection<LineString>>(() => {
     const byDay = new Map<number, ActivityPoint[]>();
     for (const a of visible) {
       const list = byDay.get(a.dayIdx) ?? [];
       list.push(a);
       byDay.set(a.dayIdx, list);
     }
-    const lines: Array<{ dayIdx: number; path: google.maps.LatLngLiteral[] }> =
-      [];
+    const features: FeatureCollection<LineString>["features"] = [];
     for (const [dayIdx, list] of byDay.entries()) {
       if (list.length < 2) continue;
-      lines.push({
-        dayIdx,
-        path: list.map((p) => ({ lat: p.point.lat, lng: p.point.lon })),
+      features.push({
+        type: "Feature",
+        properties: { color: DAY_COLORS[dayIdx % DAY_COLORS.length] },
+        geometry: {
+          type: "LineString",
+          coordinates: list.map((p) => [p.point.lon, p.point.lat]),
+        },
       });
     }
-    return lines;
+    return { type: "FeatureCollection", features };
   }, [visible]);
 
   const fitPoints = useMemo(() => {
-    const pts: google.maps.LatLngLiteral[] = visible.map((a) => ({
+    const pts: Array<{ lat: number; lng: number }> = visible.map((a) => ({
       lat: a.point.lat,
       lng: a.point.lon,
     }));
@@ -318,77 +359,86 @@ function TripMapGoogle({
   const closePopup = () => onInfoPointChange(null);
 
   return (
-    <GoogleMap
-      defaultCenter={defaultCenter}
-      defaultZoom={5}
-      mapId="DEMO_MAP_ID"
-      gestureHandling="cooperative"
-      disableDefaultUI={false}
-      className="h-full w-full"
+    <MapGL
+      initialViewState={{
+        longitude: defaultCenter.lng,
+        latitude: defaultCenter.lat,
+        zoom: 5,
+      }}
+      mapStyle={MAP_STYLE_URL}
+      style={{ width: "100%", height: "100%" }}
+      cooperativeGestures
       reuseMaps
-      onClick={closePopup}
+      onClick={(_e: MapLayerMouseEvent) => closePopup()}
     >
       <FitMapBounds points={fitPoints} disabled={!!infoPoint} />
       <CenterOnInfoPoint infoPoint={infoPoint} />
 
-      {polylines.map(({ dayIdx, path }) => (
-        <Polyline
-          key={`line-${dayIdx}`}
-          path={path}
-          strokeColor={DAY_COLORS[dayIdx % DAY_COLORS.length]}
-          strokeWeight={4}
-          strokeOpacity={0.85}
+      <Source id="trip-day-lines" type="geojson" data={lineData}>
+        <Layer
+          id="trip-day-lines-layer"
+          type="line"
+          layout={{ "line-cap": "round", "line-join": "round" }}
+          paint={{
+            "line-color": ["get", "color"],
+            "line-width": 4,
+            "line-opacity": 0.85,
+          }}
         />
-      ))}
+      </Source>
 
       {visible.map((a, idx) => {
         const color = DAY_COLORS[a.dayIdx % DAY_COLORS.length];
         const label = String(runningIndex[idx]);
         return (
-          <AdvancedMarker
+          <Marker
             key={a.activityId}
-            position={{ lat: a.point.lat, lng: a.point.lon }}
+            longitude={a.point.lon}
+            latitude={a.point.lat}
+            anchor="center"
             onClick={(e) => {
-              e.stop();
+              e.originalEvent.stopPropagation();
               onInfoPointChange(a);
             }}
           >
             <NumberedMarkerPin color={color} label={label} />
-          </AdvancedMarker>
+          </Marker>
         );
       })}
 
       {accommodationPoints.map((acc) => (
-        <AdvancedMarker
+        <Marker
           key={acc.id}
-          position={{ lat: acc.point.lat, lng: acc.point.lon }}
+          longitude={acc.point.lon}
+          latitude={acc.point.lat}
+          anchor="center"
           onClick={(e) => {
-            e.stop();
+            e.originalEvent.stopPropagation();
             onInfoPointChange(acc);
           }}
-          zIndex={-100}
         >
           <HomeMarkerPin color={ACCOMMODATION_COLOR} />
-        </AdvancedMarker>
+        </Marker>
       ))}
 
       {infoPoint ? (
-        <InfoWindow
+        <Popup
           key={infoWindowKey(infoPoint)}
-          position={{
-            lat: infoPoint.point.lat,
-            lng: infoPoint.point.lon,
-          }}
-          headerDisabled
+          longitude={infoPoint.point.lon}
+          latitude={infoPoint.point.lat}
+          anchor="bottom"
+          offset={24}
+          closeButton={false}
+          closeOnClick={false}
           onClose={closePopup}
-          onCloseClick={closePopup}
+          className="trip-map-popup-wrapper"
         >
           <PopupShell onClose={closePopup}>
-            {buildPopupContent(infoPoint)}
+            {buildPopupContent(infoPoint, trip, t)}
           </PopupShell>
-        </InfoWindow>
+        </Popup>
       ) : null}
-    </GoogleMap>
+    </MapGL>
   );
 }
 
@@ -397,6 +447,8 @@ const TripMap = ({
   onTripGeoSaved,
   focusTarget = null,
 }: TripMapProps) => {
+  const t = useTranslations("tripMap");
+  const tCommon = useTranslations("common");
   const [expanded, setExpanded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(
@@ -423,9 +475,12 @@ const TripMap = ({
     },
     persist = true,
   ) => {
-    setActivities(result.activities);
+    const hydrated = hydrateActivityPointsFromTrip(trip, result.activities);
+    setActivities(hydrated);
     setAccommodationPoints(result.accommodations);
-    if (persist) persistMapResult(trip, cacheKey, result, onTripGeoSaved);
+    if (persist) {
+      persistMapResult(trip, cacheKey, { activities: hydrated, accommodations: result.accommodations }, onTripGeoSaved);
+    }
   };
 
   // Restore markers from trip JSON or browser cache when data changes.
@@ -438,7 +493,7 @@ const TripMap = ({
     }
     const cached = getTripMapCache(cacheKey);
     if (cached) {
-      setActivities(cached.activities);
+      setActivities(hydrateActivityPointsFromTrip(trip, cached.activities));
       setAccommodationPoints(cached.accommodations);
     } else {
       setActivities([]);
@@ -474,9 +529,10 @@ const TripMap = ({
     })
       .then(({ activities: acts, accommodations, updatedTrip }) => {
         if (cancelled) return;
-        setActivities(acts);
+        const hydrated = hydrateActivityPointsFromTrip(trip, acts);
+        setActivities(hydrated);
         setAccommodationPoints(accommodations);
-        setTripMapCache(cacheKey, { activities: acts, accommodations });
+        setTripMapCache(cacheKey, { activities: hydrated, accommodations });
         if (onTripGeoSaved && hasTripGeoChanges(trip, updatedTrip)) {
           onTripGeoSaved(updatedTrip);
         }
@@ -497,8 +553,6 @@ const TripMap = ({
           progress.total - resolvedCount - accommodationPoints.length,
         )
       : 0;
-
-  const mapReady = Boolean(MAPS_KEY);
 
   useEffect(() => {
     if (!focusTarget) return;
@@ -584,14 +638,14 @@ const TripMap = ({
           </span>
           <div className="min-w-0">
             <h4 className="text-sm font-semibold text-white">
-              Mappa del viaggio
+              {t("title")}
             </h4>
             <p className="text-xs text-white/50">
-              {totalActivities} attività
+              {tCommon("activitiesCount", { count: totalActivities })}
               {trip.accommodations?.length
-                ? ` · ${trip.accommodations.length} ${trip.accommodations.length === 1 ? "alloggio" : "alloggi"}`
+                ? ` · ${t("accommodationsCount", { count: trip.accommodations.length })}`
                 : ""}
-              {" · "}Google Maps
+              {" · "}OpenStreetMap
             </p>
           </div>
         </div>
@@ -628,7 +682,7 @@ const TripMap = ({
                     : "border-white/[0.06] bg-white/[0.02] text-white/60 hover:bg-white/[0.06]"
                 }`}
               >
-                Tutti i giorni
+                {t("allDays")}
               </button>
               {trip.days.map((d, idx) => {
                 const color = DAY_COLORS[idx % DAY_COLORS.length];
@@ -651,7 +705,7 @@ const TripMap = ({
                       className="h-2 w-2 rounded-full"
                       style={{ backgroundColor: color }}
                     />
-                    Giorno {idx + 1}
+                    {t("day", { day: idx + 1 })}
                   </button>
                 );
               })}
@@ -661,7 +715,7 @@ const TripMap = ({
                     className="inline-block h-2 w-2 rounded-sm"
                     style={{ backgroundColor: ACCOMMODATION_COLOR }}
                   />
-                  Alloggi
+                  {t("accommodationsLabel")}
                 </span>
               ) : null}
             </div>
@@ -670,41 +724,33 @@ const TripMap = ({
               <span>
                 {loading
                   ? progress
-                    ? `Caricamento mappa… ${progress.done}/${progress.total}`
-                    : "Caricamento mappa…"
-                  : `${resolvedCount}/${totalActivities} attività localizzate${
-                      missing > 0 ? ` · ${missing} non trovate` : ""
-                    }`}
+                    ? t("loadingWithProgress", {
+                        done: progress.done,
+                        total: progress.total,
+                      })
+                    : t("loading")
+                  : `${t("localized", {
+                      resolved: resolvedCount,
+                      total: totalActivities,
+                    })}${missing > 0 ? t("notFound", { count: missing }) : ""}`}
               </span>
               {!loading && resolvedCount === 0 && totalActivities > 0 ? (
                 <span className="text-amber-300/80">
-                  Impossibile localizzare le attività. Riprova più tardi.
+                  {t("cannotLocalize")}
                 </span>
               ) : null}
             </div>
 
-            {!mapReady ? (
-              <div className="flex h-[420px] w-full items-center justify-center rounded-xl border border-amber-400/20 bg-amber-400/5 px-6 text-center text-sm text-amber-200/90">
-                Configura{" "}
-                <code className="mx-1 rounded bg-black/30 px-1.5 py-0.5 text-xs">
-                  NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
-                </code>{" "}
-                in <code className="mx-1 text-xs">.env.local</code> per
-                visualizzare la mappa. Vedi README.
-              </div>
-            ) : (
-              <div className="trip-map-canvas h-[420px] w-full overflow-hidden rounded-xl border border-white/[0.06]">
-                <APIProvider apiKey={MAPS_KEY}>
-                  <TripMapGoogle
-                    activities={activities}
-                    accommodationPoints={accommodationPoints}
-                    selectedDay={selectedDay}
-                    infoPoint={infoPoint}
-                    onInfoPointChange={setInfoPoint}
-                  />
-                </APIProvider>
-              </div>
-            )}
+            <div className="trip-map-canvas h-[420px] w-full overflow-hidden rounded-xl border border-white/[0.06]">
+              <TripMapView
+                trip={trip}
+                activities={activities}
+                accommodationPoints={accommodationPoints}
+                selectedDay={selectedDay}
+                infoPoint={infoPoint}
+                onInfoPointChange={setInfoPoint}
+              />
+            </div>
           </div>
         </div>
       </div>

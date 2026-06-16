@@ -74,6 +74,31 @@ export function mapPointsFromTrip(trip: Trip): {
   };
 }
 
+/** Refreshes display fields on cached map points from the current trip text. */
+export function hydrateActivityPointsFromTrip(
+  trip: Trip,
+  points: CachedActivityPoint[],
+): CachedActivityPoint[] {
+  const byKey = new Map<string, Trip["days"][0]["activities"][0]>();
+  trip.days.forEach((day, dayIdx) => {
+    day.activities.forEach((a) => {
+      byKey.set(`${dayIdx}:${a.id}`, a);
+    });
+  });
+  return points.map((p) => {
+    const activity = byKey.get(`${p.dayIdx}:${p.activityId}`);
+    if (!activity) return p;
+    return {
+      ...p,
+      title: activity.title,
+      time: activity.time,
+      description: activity.description,
+      location: activity.location,
+      mapsUrl: activity.mapsUrl,
+    };
+  });
+}
+
 export function mergeGeoIntoTrip(
   trip: Trip,
   data: {
