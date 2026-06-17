@@ -19,6 +19,7 @@ function LoginInner() {
   const router = useRouter();
   const errorParam = params.get("error");
   const signedOut = params.get("signedOut") === "1";
+  const accountDeleted = params.get("accountDeleted") === "1";
   const next = params.get("next") ?? "/";
 
   const [tab, setTab] = useState<Tab>("signin");
@@ -62,14 +63,16 @@ function LoginInner() {
   const heading = useMemo(() => {
     if (view === "forgot") return t("headingForgot");
     if (signedOut) return t("headingSignedOut");
+    if (accountDeleted) return t("headingAccountDeleted");
     return tab === "signin" ? t("headingSignin") : t("headingSignup");
-  }, [view, signedOut, tab, t]);
+  }, [view, signedOut, accountDeleted, tab, t]);
 
   const subheading = useMemo(() => {
     if (view === "forgot") return t("subForgot");
     if (signedOut) return t("subSignedOut");
+    if (accountDeleted) return t("subAccountDeleted");
     return tab === "signin" ? t("subSignin") : t("subSignup");
-  }, [view, signedOut, tab, t]);
+  }, [view, signedOut, accountDeleted, tab, t]);
 
   function clearMessages() {
     setError(null);

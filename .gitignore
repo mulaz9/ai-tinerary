@@ -40,3 +40,19 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .aider*
+
+# Serwist
+public/sw.js
+public/swe-worker*
+
+# Android TWA wrapper
+mobile/android/local.properties
+mobile/android/**/build/
+*.jks
+*.keystore
+
+# iOS Capacitor wrapper
+mobile/ios/node_modules/
+mobile/ios/ios/App/Pods/
+mobile/ios/ios/App/DerivedData/
+mobile/ios/ios/App/build/

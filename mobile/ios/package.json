@@ -1,0 +1,30 @@
+{
+  "name": "ai-tinerary-ios",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Capacitor iOS wrapper for AI-tinerary (loads remote Next.js app on Vercel)",
+  "scripts": {
+    "sync": "npx cap sync ios",
+    "open": "npx cap open ios",
+    "assets": "npx capacitor-assets generate --ios",
+    "copy-icons": "node scripts/copy-icons.mjs"
+  },
+  "dependencies": {
+    "@capacitor/app": "^7.0.1",
+    "@capacitor/core": "^7.2.0",
+    "@capacitor/share": "^7.0.1",
+    "@capacitor/splash-screen": "^7.0.1",
+    "@capacitor/status-bar": "^7.0.1"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^7.2.0",
+    "@capacitor/ios": "^7.2.0",
+    "typescript": "^5"
+  },
+  "capacitor": {
+    "ios": {
+      "path": "ios"
+    }
+  }
+}

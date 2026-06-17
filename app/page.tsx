@@ -26,11 +26,11 @@ export default function Home() {
   }, []);
 
   return (
-    <div className="min-h-screen overflow-x-hidden bg-[#121212] text-white">
+    <div className="min-h-screen min-w-0 max-w-full overflow-x-clip bg-[#121212] text-white">
       <Sidebar />
 
       {/* pb-24 = clearance for mobile bottom nav; lg resets to normal */}
-      <main className="mx-auto max-w-6xl px-4 py-6 pb-24 sm:px-5 sm:py-8 lg:ml-80 lg:pb-10">
+      <main className="mx-auto min-w-0 max-w-6xl px-4 py-6 pb-24 sm:px-5 sm:py-8 lg:ml-80 lg:pb-10">
         {/* ── Hero ──────────────────────────────────────────────────────── */}
         <header className="animate-fade-in-up">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-emerald-400/70">
@@ -45,7 +45,7 @@ export default function Home() {
         </header>
 
         {/* ── Trip cards ────────────────────────────────────────────────── */}
-        <section className="mt-10">
+        <section className="mt-10 min-w-0 overflow-x-clip">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-base font-semibold text-white">
               {t("availableTrips")}
@@ -64,9 +64,13 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="stagger-children mt-4 grid gap-4 md:grid-cols-2">
+          <div className="stagger-children mt-4 grid min-w-0 gap-4 md:grid-cols-2">
             {trips.map((trip, i) => (
-              <div key={trip.id} style={{ "--i": i } as React.CSSProperties}>
+              <div
+                key={trip.id}
+                className="min-w-0"
+                style={{ "--i": i } as React.CSSProperties}
+              >
                 <TripCard trip={trip} />
               </div>
             ))}
@@ -74,7 +78,7 @@ export default function Home() {
         </section>
 
         {/* ── Day preview grid ──────────────────────────────────────────── */}
-        <section className="mt-12 animate-fade-in">
+        <section className="mt-12 min-w-0 overflow-x-clip animate-fade-in">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="text-base font-semibold text-white">
@@ -86,7 +90,7 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-4 grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {trips
               .flatMap((t) => t.days.map((d) => ({ trip: t, day: d })))
               .slice(0, 6)
@@ -94,10 +98,10 @@ export default function Home() {
                 <a
                   key={day.id}
                   href={`/trip/${trip.id}`}
-                  className="group rounded-2xl border border-white/6 bg-white/20 p-4 transition-all duration-200 hover:border-white/10 hover:bg-white/40 active:scale-[0.98]"
+                  className="group min-w-0 max-w-full touch-manipulation rounded-2xl border border-white/6 bg-white/20 p-4 transition-all duration-200 hover:border-white/10 hover:bg-white/40 active:scale-[0.98]"
                 >
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-sm font-semibold text-white">
+                  <div className="flex min-w-0 items-center justify-between gap-3">
+                    <p className="min-w-0 truncate text-sm font-semibold text-white">
                       {trip.name}
                     </p>
                     <span className="shrink-0 text-[11px] tabular-nums text-white/40">
@@ -140,15 +144,15 @@ export default function Home() {
             </span>
           </div>
 
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-4 grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {sharedTrips.map((st) => (
               <Link
                 key={st._shareToken}
                 href={`/trip/shared/${st._shareToken}`}
-                className="group rounded-2xl border border-white/6 bg-white/20 p-4 transition-all duration-200 hover:border-white/10 hover:bg-white/40 active:scale-[0.98]"
+                className="group min-w-0 max-w-full touch-manipulation rounded-2xl border border-white/6 bg-white/20 p-4 transition-all duration-200 hover:border-white/10 hover:bg-white/40 active:scale-[0.98]"
               >
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-semibold text-white">
+                <div className="flex min-w-0 items-center justify-between gap-3">
+                  <p className="min-w-0 truncate text-sm font-semibold text-white">
                     {st.name}
                   </p>
                   <span className="shrink-0 rounded-full border border-blue-400/20 bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium text-blue-300">

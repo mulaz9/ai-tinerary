@@ -44,7 +44,12 @@
     "signIn": "Sign in",
     "signInWithGoogle": "Sign in with Google",
     "signOut": "Sign out",
-    "user": "User"
+    "user": "User",
+    "account": "Account",
+    "deleteAccount": "Delete account",
+    "deleteConfirm": "This action is irreversible. Your account and all cloud-saved trips will be permanently deleted.",
+    "deleteCancel": "Cancel",
+    "deleteConfirmAction": "Delete permanently"
   },
   "home": {
     "kicker": "AI-tinerary",
@@ -256,10 +261,12 @@
     "kicker": "AI-tinerary",
     "headingForgot": "Reset password",
     "headingSignedOut": "See you soon",
+    "headingAccountDeleted": "Account deleted",
     "headingSignin": "Welcome back",
     "headingSignup": "Create your account",
     "subForgot": "Enter your account email: we'll send you a link to choose a new password.",
     "subSignedOut": "You signed out of your account. You can sign back in or continue as a guest.",
+    "subAccountDeleted": "Your account and cloud data have been deleted. You can continue as a guest or create a new account.",
     "subSignin": "Sign in to sync your trips across all your devices, or continue without an account.",
     "subSignup": "Sign up to save your trips and find them anywhere.",
     "tabsLabel": "Sign in or sign up",
@@ -322,5 +329,39 @@
     "errorCannotVerify": "Could not verify the session. Try again from the link in the email.",
     "errorCannotUpdate": "Could not update the password.",
     "passwordUpdated": "Password updated. Redirecting…"
+  },
+  "offline": {
+    "kicker": "Offline",
+    "title": "You are offline",
+    "body": "Check your internet connection and try again. AI features and cloud sync require an active connection.",
+    "retry": "Try again"
+  },
+  "account": {
+    "kicker": "Account",
+    "title": "Your account",
+    "signInRequired": "Sign in to manage your account.",
+    "signIn": "Sign in",
+    "signOut": "Sign out",
+    "privacyPolicy": "Privacy policy"
+  },
+  "privacy": {
+    "kicker": "Legal",
+    "title": "Privacy policy",
+    "updated": "Last updated: June 2026",
+    "backHome": "← Back to home",
+    "introTitle": "Introduction",
+    "introBody": "AI-tinerary («we») respects your privacy. This policy describes what data we collect, how we use it, and who we share it with when you use the web and mobile app.",
+    "dataCollectedTitle": "Data collected",
+    "dataCollectedBody": "• Email and profile (if you sign in with Google or email/password)\n• Travel itineraries you create or edit\n• Language preference\n• Basic technical data (server logs, IP address for security)",
+    "dataUseTitle": "How we use data",
+    "dataUseBody": "We use your data to:\n• Authenticate you and sync trips across devices\n• Generate and translate itineraries with AI\n• Show maps, weather and activity images\n• Improve service reliability and security",
+    "thirdPartiesTitle": "Third parties",
+    "thirdPartiesBody": "We share data with providers that help us deliver the service:\n• Supabase (authentication and database)\n• Google Gemini, Groq and other AI providers (text generation)\n• Open-Meteo (weather)\n• OpenStreetMap / Nominatim (geocoding)\n• OpenFreeMap (maps)\n\nWe do not sell your personal data.",
+    "storageTitle": "Retention",
+    "storageBody": "Registered users' trips are stored on Supabase until you delete them or delete your account. Guests can save trips locally on the device only (localStorage).",
+    "rightsTitle": "Your rights",
+    "rightsBody": "You can delete individual trips from the app. If you have an account, you can delete it from the Account page: your account, trips and share links will be removed. For GDPR requests contact us at the email below.",
+    "contactTitle": "Contact",
+    "contactBody": "For privacy questions email: privacy@ai-tinerary.app\n\nReplace this address with the real data controller email before publishing on the stores."
   }
 }

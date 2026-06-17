@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { createSupabaseBrowserClient } from "../lib/supabase/client";
+import DeleteAccountButton from "./DeleteAccountButton";
 
 interface UserInfo {
   email: string | null;
@@ -93,39 +94,40 @@ export default function UserMenu({ variant = "sidebar" }: UserMenuProps) {
 
   if (variant === "compact") {
     return (
-      <form action="/auth/signout" method="post" className="flex items-center">
-        <button
-          type="submit"
-          title={user.email ?? t("signOut")}
-          className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-white/80 transition hover:bg-white/10"
-        >
-          <Avatar url={user.avatarUrl} initial={initial} size={20} />
-          {t("signOut")}
-        </button>
-      </form>
+      <Link
+        href="/account"
+        title={user.email ?? t("user")}
+        className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-white/80 transition hover:bg-white/10"
+      >
+        <Avatar url={user.avatarUrl} initial={initial} size={20} />
+        {t("account")}
+      </Link>
     );
   }
 
   return (
-    <div className="mt-6 flex items-center gap-3 rounded-2xl border border-white/10 bg-white/3 p-3">
-      <Avatar url={user.avatarUrl} initial={initial} size={36} />
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-semibold text-white">
-          {user.name ?? user.email ?? t("user")}
-        </p>
-        {user.name && user.email ? (
-          <p className="truncate text-xs text-white/50">{user.email}</p>
-        ) : null}
+    <>
+      <div className="mt-6 flex items-center gap-3 rounded-2xl border border-white/10 bg-white/3 p-3">
+        <Avatar url={user.avatarUrl} initial={initial} size={36} />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-white">
+            {user.name ?? user.email ?? t("user")}
+          </p>
+          {user.name && user.email ? (
+            <p className="truncate text-xs text-white/50">{user.email}</p>
+          ) : null}
+        </div>
+        <form action="/auth/signout" method="post">
+          <button
+            type="submit"
+            className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-white/80 transition hover:bg-white/10"
+          >
+            {t("signOut")}
+          </button>
+        </form>
       </div>
-      <form action="/auth/signout" method="post">
-        <button
-          type="submit"
-          className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-white/80 transition hover:bg-white/10"
-        >
-          {t("signOut")}
-        </button>
-      </form>
-    </div>
+      <DeleteAccountButton />
+    </>
   );
 }
 

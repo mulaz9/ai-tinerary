@@ -83,7 +83,7 @@ async function geocodeNominatim(query: string): Promise<GeocodeResult | null> {
 }
 
 /** Resolve one query; uses cache, then Nominatim. */
-export async function geocodeOne(query: string): Promise<GeocodeResult | null> {
+async function geocodeOne(query: string): Promise<GeocodeResult | null> {
   const key = normalize(query);
   if (!key) return null;
   if (cache.has(key)) return cache.get(key) ?? null;

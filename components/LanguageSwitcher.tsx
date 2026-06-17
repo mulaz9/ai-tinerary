@@ -27,11 +27,15 @@ export default function LanguageSwitcher({
 
   useEffect(() => {
     if (!open) return;
-    function onClick(e: MouseEvent) {
+    function onDismiss(e: MouseEvent | TouchEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     }
-    document.addEventListener("mousedown", onClick);
-    return () => document.removeEventListener("mousedown", onClick);
+    document.addEventListener("mousedown", onDismiss);
+    document.addEventListener("touchstart", onDismiss, { passive: true });
+    return () => {
+      document.removeEventListener("mousedown", onDismiss);
+      document.removeEventListener("touchstart", onDismiss);
+    };
   }, [open]);
 
   function choose(locale: Locale) {
@@ -55,8 +59,8 @@ export default function LanguageSwitcher({
         aria-expanded={open}
         className={
           compact
-            ? "flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[11px] font-semibold text-white/80 transition hover:bg-white/10 disabled:opacity-50"
-            : "flex w-full items-center justify-between gap-2 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm font-medium text-white/80 transition hover:bg-white/10 disabled:opacity-50"
+            ? "flex touch-manipulation items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[11px] font-semibold text-white/80 transition hover:bg-white/10 disabled:opacity-50"
+            : "flex w-full touch-manipulation items-center justify-between gap-2 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm font-medium text-white/80 transition hover:bg-white/10 disabled:opacity-50"
         }
       >
         <span className="flex items-center gap-1.5">

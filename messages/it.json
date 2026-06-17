@@ -44,7 +44,12 @@
     "signIn": "Accedi",
     "signInWithGoogle": "Accedi con Google",
     "signOut": "Esci",
-    "user": "Utente"
+    "user": "Utente",
+    "account": "Account",
+    "deleteAccount": "Elimina account",
+    "deleteConfirm": "Questa azione è irreversibile. Verranno eliminati il tuo account e tutti i viaggi salvati nel cloud.",
+    "deleteCancel": "Annulla",
+    "deleteConfirmAction": "Elimina definitivamente"
   },
   "home": {
     "kicker": "AI-tinerary",
@@ -256,10 +261,12 @@
     "kicker": "AI-tinerary",
     "headingForgot": "Reimposta password",
     "headingSignedOut": "A presto",
+    "headingAccountDeleted": "Account eliminato",
     "headingSignin": "Bentornato",
     "headingSignup": "Crea il tuo account",
     "subForgot": "Inserisci l'email del tuo account: ti invieremo un link per scegliere una nuova password.",
     "subSignedOut": "Sei uscito dal tuo account. Puoi rientrare o continuare come ospite.",
+    "subAccountDeleted": "Il tuo account e i dati nel cloud sono stati eliminati. Puoi continuare come ospite o creare un nuovo account.",
     "subSignin": "Accedi per sincronizzare i tuoi viaggi su tutti i dispositivi, oppure prosegui senza account.",
     "subSignup": "Registrati per salvare i tuoi viaggi e ritrovarli ovunque.",
     "tabsLabel": "Accedi o registrati",
@@ -322,5 +329,39 @@
     "errorCannotVerify": "Impossibile verificare la sessione. Riprova dal link nell'email.",
     "errorCannotUpdate": "Impossibile aggiornare la password.",
     "passwordUpdated": "Password aggiornata. Ti reindirizzo…"
+  },
+  "offline": {
+    "kicker": "Offline",
+    "title": "Sei offline",
+    "body": "Controlla la connessione internet e riprova. Le funzioni AI e la sincronizzazione cloud richiedono una connessione attiva.",
+    "retry": "Riprova"
+  },
+  "account": {
+    "kicker": "Account",
+    "title": "Il tuo account",
+    "signInRequired": "Accedi per gestire il tuo account.",
+    "signIn": "Accedi",
+    "signOut": "Esci",
+    "privacyPolicy": "Informativa sulla privacy"
+  },
+  "privacy": {
+    "kicker": "Legale",
+    "title": "Informativa sulla privacy",
+    "updated": "Ultimo aggiornamento: giugno 2026",
+    "backHome": "← Torna alla home",
+    "introTitle": "Introduzione",
+    "introBody": "AI-tinerary («noi») rispetta la tua privacy. Questa informativa descrive quali dati raccogliamo, come li usiamo e con chi li condividiamo quando usi l'app web e mobile.",
+    "dataCollectedTitle": "Dati raccolti",
+    "dataCollectedBody": "• Email e profilo (se accedi con Google o email/password)\n• Itinerari di viaggio che crei o modifichi\n• Preferenza lingua\n• Dati tecnici di base (log server, indirizzo IP per sicurezza)",
+    "dataUseTitle": "Come usiamo i dati",
+    "dataUseBody": "Usiamo i tuoi dati per:\n• Autenticarti e sincronizzare i viaggi tra dispositivi\n• Generare e tradurre itinerari con l'AI\n• Mostrare mappe, meteo e immagini delle attività\n• Migliorare affidabilità e sicurezza del servizio",
+    "thirdPartiesTitle": "Terze parti",
+    "thirdPartiesBody": "Condividiamo dati con fornitori che ci aiutano a erogare il servizio:\n• Supabase (autenticazione e database)\n• Google Gemini, Groq e altri provider AI (generazione testi)\n• Open-Meteo (meteo)\n• OpenStreetMap / Nominatim (geocoding)\n• OpenFreeMap (mappe)\n\nNon vendiamo i tuoi dati personali.",
+    "storageTitle": "Conservazione",
+    "storageBody": "I viaggi degli utenti registrati sono conservati su Supabase finché non li elimini o cancelli l'account. Gli ospiti possono salvare viaggi solo in locale sul dispositivo (localStorage).",
+    "rightsTitle": "I tuoi diritti",
+    "rightsBody": "Puoi eliminare i singoli viaggi dall'app. Se hai un account, puoi eliminarlo dalla pagina Account: verranno rimossi account, viaggi e link di condivisione associati. Per richieste GDPR contattaci all'indirizzo email indicato sotto.",
+    "contactTitle": "Contatti",
+    "contactBody": "Per domande sulla privacy scrivi a: privacy@ai-tinerary.app\n\nSostituisci questo indirizzo con quello reale del titolare del trattamento prima della pubblicazione sugli store."
   }
 }

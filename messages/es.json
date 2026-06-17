@@ -44,7 +44,12 @@
     "signIn": "Iniciar sesión",
     "signInWithGoogle": "Iniciar sesión con Google",
     "signOut": "Cerrar sesión",
-    "user": "Usuario"
+    "user": "Usuario",
+    "account": "Cuenta",
+    "deleteAccount": "Eliminar cuenta",
+    "deleteConfirm": "Esta acción es irreversible. Se eliminarán tu cuenta y todos los viajes guardados en la nube.",
+    "deleteCancel": "Cancelar",
+    "deleteConfirmAction": "Eliminar definitivamente"
   },
   "home": {
     "kicker": "AI-tinerary",
@@ -256,10 +261,12 @@
     "kicker": "AI-tinerary",
     "headingForgot": "Restablecer contraseña",
     "headingSignedOut": "Hasta pronto",
+    "headingAccountDeleted": "Cuenta eliminada",
     "headingSignin": "Bienvenido de nuevo",
     "headingSignup": "Crea tu cuenta",
     "subForgot": "Introduce el correo de tu cuenta: te enviaremos un enlace para elegir una nueva contraseña.",
     "subSignedOut": "Has cerrado sesión en tu cuenta. Puedes volver a entrar o continuar como invitado.",
+    "subAccountDeleted": "Tu cuenta y los datos en la nube han sido eliminados. Puedes continuar como invitado o crear una cuenta nueva.",
     "subSignin": "Inicia sesión para sincronizar tus viajes en todos tus dispositivos, o continúa sin cuenta.",
     "subSignup": "Regístrate para guardar tus viajes y encontrarlos en cualquier lugar.",
     "tabsLabel": "Iniciar sesión o registrarse",
@@ -322,5 +329,39 @@
     "errorCannotVerify": "No se pudo verificar la sesión. Inténtalo de nuevo desde el enlace del correo.",
     "errorCannotUpdate": "No se pudo actualizar la contraseña.",
     "passwordUpdated": "Contraseña actualizada. Redirigiendo…"
+  },
+  "offline": {
+    "kicker": "Sin conexión",
+    "title": "Estás sin conexión",
+    "body": "Comprueba tu conexión a internet e inténtalo de nuevo. Las funciones de IA y la sincronización en la nube requieren conexión activa.",
+    "retry": "Reintentar"
+  },
+  "account": {
+    "kicker": "Cuenta",
+    "title": "Tu cuenta",
+    "signInRequired": "Inicia sesión para gestionar tu cuenta.",
+    "signIn": "Iniciar sesión",
+    "signOut": "Cerrar sesión",
+    "privacyPolicy": "Política de privacidad"
+  },
+  "privacy": {
+    "kicker": "Legal",
+    "title": "Política de privacidad",
+    "updated": "Última actualización: junio 2026",
+    "backHome": "← Volver al inicio",
+    "introTitle": "Introducción",
+    "introBody": "AI-tinerary («nosotros») respeta tu privacidad. Esta política describe qué datos recopilamos, cómo los usamos y con quién los compartimos.",
+    "dataCollectedTitle": "Datos recopilados",
+    "dataCollectedBody": "• Email y perfil (si inicias sesión con Google o email/contraseña)\n• Itinerarios de viaje que creas o editas\n• Preferencia de idioma\n• Datos técnicos básicos (logs, dirección IP)",
+    "dataUseTitle": "Uso de los datos",
+    "dataUseBody": "Usamos tus datos para autenticarte, sincronizar viajes, generar itinerarios con IA, mostrar mapas y meteo, y mejorar la seguridad.",
+    "thirdPartiesTitle": "Terceros",
+    "thirdPartiesBody": "Compartimos datos con: Supabase, Google Gemini, Groq, Open-Meteo, OpenStreetMap/Nominatim, OpenFreeMap. No vendemos tus datos personales.",
+    "storageTitle": "Conservación",
+    "storageBody": "Los viajes de usuarios registrados se guardan en Supabase hasta que los elimines o borres la cuenta. Los invitados pueden guardar solo en local (localStorage).",
+    "rightsTitle": "Tus derechos",
+    "rightsBody": "Puedes eliminar viajes individuales. La eliminación de cuenta está en la página Cuenta. Para solicitudes GDPR, contáctanos.",
+    "contactTitle": "Contacto",
+    "contactBody": "Preguntas sobre privacidad: privacy@ai-tinerary.app\n\nSustituye esta dirección antes de publicar en las tiendas."
   }
 }

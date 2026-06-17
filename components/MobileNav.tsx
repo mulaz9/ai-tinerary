@@ -75,7 +75,10 @@ export default function MobileNav() {
   return (
     <>
       {/* ── Top bar (mobile only) ────────────────────────────────────────── */}
-      <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-white/10 bg-[#121212]/95 px-4 backdrop-blur-md lg:hidden">
+      <header
+        className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-white/10 bg-[#121212]/95 px-4 backdrop-blur-md lg:hidden"
+        style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
+      >
         <Link href="/" className="text-sm font-bold tracking-tight text-white">
           ai‑tinerary
         </Link>
@@ -88,13 +91,13 @@ export default function MobileNav() {
 
       {/* ── Bottom nav (mobile only) ─────────────────────────────────────── */}
       <nav
-        className="fixed bottom-0 left-0 right-0 z-40 flex border-t border-white/10 bg-[#121212]/95 backdrop-blur-md lg:hidden"
+        className="fixed bottom-0 left-0 right-0 z-40 flex max-w-full overflow-x-auto border-t border-white/10 bg-[#121212]/95 backdrop-blur-md [-webkit-overflow-scrolling:touch] lg:hidden"
         style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
       >
         {/* Home */}
         <Link
           href="/"
-          className={`flex flex-1 flex-col items-center gap-1 py-3 text-[11px] font-medium transition-colors ${
+          className={`flex min-w-[4.5rem] flex-1 touch-manipulation flex-col items-center gap-1 py-3 text-[11px] font-medium transition-colors ${
             pathname === "/" ? "text-white" : "text-white/40 hover:text-white/70"
           }`}
         >
@@ -113,7 +116,7 @@ export default function MobileNav() {
             <Link
               key={trip.id}
               href={`/trip/${trip.id}`}
-              className={`flex flex-1 flex-col items-center gap-1 py-3 text-[11px] font-medium transition-colors ${
+              className={`flex min-w-[4.5rem] flex-1 touch-manipulation flex-col items-center gap-1 py-3 text-[11px] font-medium transition-colors ${
                 active ? "text-white" : "text-white/40 hover:text-white/70"
               }`}
               aria-label={trip.name}

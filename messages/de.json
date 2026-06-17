@@ -44,7 +44,12 @@
     "signIn": "Anmelden",
     "signInWithGoogle": "Mit Google anmelden",
     "signOut": "Abmelden",
-    "user": "Benutzer"
+    "user": "Benutzer",
+    "account": "Konto",
+    "deleteAccount": "Konto löschen",
+    "deleteConfirm": "Diese Aktion ist unwiderruflich. Dein Konto und alle in der Cloud gespeicherten Reisen werden gelöscht.",
+    "deleteCancel": "Abbrechen",
+    "deleteConfirmAction": "Endgültig löschen"
   },
   "home": {
     "kicker": "AI-tinerary",
@@ -256,10 +261,12 @@
     "kicker": "AI-tinerary",
     "headingForgot": "Passwort zurücksetzen",
     "headingSignedOut": "Bis bald",
+    "headingAccountDeleted": "Konto gelöscht",
     "headingSignin": "Willkommen zurück",
     "headingSignup": "Erstelle dein Konto",
     "subForgot": "Gib die E-Mail deines Kontos ein: Wir senden dir einen Link, um ein neues Passwort zu wählen.",
     "subSignedOut": "Du hast dich abgemeldet. Du kannst dich wieder anmelden oder als Gast fortfahren.",
+    "subAccountDeleted": "Dein Konto und Cloud-Daten wurden gelöscht. Du kannst als Gast fortfahren oder ein neues Konto erstellen.",
     "subSignin": "Melde dich an, um deine Reisen auf allen Geräten zu synchronisieren, oder fahre ohne Konto fort.",
     "subSignup": "Registriere dich, um deine Reisen zu speichern und überall wiederzufinden.",
     "tabsLabel": "Anmelden oder registrieren",
@@ -322,5 +329,39 @@
     "errorCannotVerify": "Sitzung konnte nicht überprüft werden. Versuche es erneut über den Link in der E-Mail.",
     "errorCannotUpdate": "Passwort konnte nicht aktualisiert werden.",
     "passwordUpdated": "Passwort aktualisiert. Weiterleitung…"
+  },
+  "offline": {
+    "kicker": "Offline",
+    "title": "Du bist offline",
+    "body": "Prüfe deine Internetverbindung und versuche es erneut. KI-Funktionen und Cloud-Sync benötigen eine aktive Verbindung.",
+    "retry": "Erneut versuchen"
+  },
+  "account": {
+    "kicker": "Konto",
+    "title": "Dein Konto",
+    "signInRequired": "Melde dich an, um dein Konto zu verwalten.",
+    "signIn": "Anmelden",
+    "signOut": "Abmelden",
+    "privacyPolicy": "Datenschutzerklärung"
+  },
+  "privacy": {
+    "kicker": "Rechtliches",
+    "title": "Datenschutzerklärung",
+    "updated": "Zuletzt aktualisiert: Juni 2026",
+    "backHome": "← Zur Startseite",
+    "introTitle": "Einleitung",
+    "introBody": "AI-tinerary («wir») respektiert deine Privatsphäre. Diese Erklärung beschreibt, welche Daten wir erheben, wie wir sie nutzen und mit wem wir sie teilen.",
+    "dataCollectedTitle": "Erhobene Daten",
+    "dataCollectedBody": "• E-Mail und Profil (bei Anmeldung mit Google oder E-Mail/Passwort)\n• Reiseitinerare, die du erstellst oder bearbeitest\n• Spracheinstellung\n• Grundlegende technische Daten (Server-Logs, IP-Adresse)",
+    "dataUseTitle": "Nutzung der Daten",
+    "dataUseBody": "Wir nutzen deine Daten zur Authentifizierung, Synchronisation, KI-Generierung, Karten und Wetter sowie zur Verbesserung der Sicherheit.",
+    "thirdPartiesTitle": "Drittanbieter",
+    "thirdPartiesBody": "Wir teilen Daten mit: Supabase, Google Gemini, Groq, Open-Meteo, OpenStreetMap/Nominatim, OpenFreeMap. Wir verkaufen keine personenbezogenen Daten.",
+    "storageTitle": "Speicherung",
+    "storageBody": "Reisen registrierter Nutzer werden auf Supabase gespeichert, bis du sie oder dein Konto löschst. Gäste können nur lokal speichern (localStorage).",
+    "rightsTitle": "Deine Rechte",
+    "rightsBody": "Du kannst einzelne Reisen löschen. Die Kontolöschung findest du auf der Kontoseite. Für DSGVO-Anfragen kontaktiere uns.",
+    "contactTitle": "Kontakt",
+    "contactBody": "Datenschutzfragen: privacy@ai-tinerary.app\n\nErsetze diese Adresse vor der Veröffentlichung in den Stores."
   }
 }

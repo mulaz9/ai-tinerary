@@ -1,7 +1,38 @@
+import type { Metadata, Viewport } from "next";
 import "../styles/globals.css";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale } from "next-intl/server";
 import MobileNav from "../components/MobileNav";
+
+const APP_NAME = "AI-tinerary";
+
+export const metadata: Metadata = {
+  applicationName: APP_NAME,
+  title: {
+    default: APP_NAME,
+    template: `%s · ${APP_NAME}`,
+  },
+  description:
+    "Pianifica itinerari di viaggio con l'AI, mappe interattive e meteo.",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: APP_NAME,
+  },
+  formatDetection: {
+    telephone: false,
+  },
+  icons: {
+    apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180" }],
+  },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#121212",
+};
 
 export default async function RootLayout({
   children,
@@ -11,24 +42,12 @@ export default async function RootLayout({
   const locale = await getLocale();
 
   return (
-    // `suppressHydrationWarning` ignores attribute-only mismatches injected by
-    // browser extensions (Grammarly, ColorZilla, Dark Reader, password
-    // managers…) on <html>/<body>. It only suppresses the warning for these two
-    // elements' own attributes — real mismatches deeper in the tree still warn.
     <html lang={locale} suppressHydrationWarning>
-      <head>
-        <meta
-          name="viewport"
-          content="width=device-width, initial-scale=1, viewport-fit=cover"
-        />
-        <title>AI-tinerary</title>
-      </head>
       <body
         className="bg-[#121212] text-white antialiased"
         suppressHydrationWarning
       >
         <NextIntlClientProvider>
-          {/* Mobile top bar + bottom nav (hidden on lg+) */}
           <MobileNav />
           {children}
         </NextIntlClientProvider>
