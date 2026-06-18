@@ -54,6 +54,7 @@ const NewTripDialog = ({ open, onClose, onCreated }: NewTripDialogProps) => {
   const firstFieldRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
   const touchLogCountRef = useRef(0);
   const { trips, hydrated } = useAllTrips();
   const atLimit = hydrated && trips.length >= MAX_USER_TRIPS;
@@ -93,6 +94,15 @@ const NewTripDialog = ({ open, onClose, onCreated }: NewTripDialogProps) => {
 
   useEffect(() => {
     if (!open) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
 
     const logDebug = (
       location: string,
@@ -100,21 +110,27 @@ const NewTripDialog = ({ open, onClose, onCreated }: NewTripDialogProps) => {
       hypothesisId: string,
       data: Record<string, unknown>,
     ) => {
+      const payload = {
+        sessionId: "4dd1f4",
+        location,
+        message,
+        data,
+        timestamp: Date.now(),
+        hypothesisId,
+      };
       // #region agent log
+      fetch("/api/debug-log", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }).catch(() => {});
       fetch("http://127.0.0.1:7872/ingest/266cf421-78fa-40dc-aeaf-b1a54776429d", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "X-Debug-Session-Id": "4dd1f4",
         },
-        body: JSON.stringify({
-          sessionId: "4dd1f4",
-          location,
-          message,
-          data,
-          timestamp: Date.now(),
-          hypothesisId,
-        }),
+        body: JSON.stringify(payload),
       }).catch(() => {});
       // #endregion
     };
@@ -122,14 +138,24 @@ const NewTripDialog = ({ open, onClose, onCreated }: NewTripDialogProps) => {
     const measureLayout = (trigger: string) => {
       const form = formRef.current;
       const content = contentRef.current;
+      const overlay = overlayRef.current;
       const vh = window.visualViewport?.height ?? window.innerHeight;
       const formStyle = form ? getComputedStyle(form) : null;
       const contentStyle = content ? getComputedStyle(content) : null;
-      logDebug("NewTripDialog.tsx:measure", "dialog layout measured", "H1-H4", {
+      const overlayStyle = overlay ? getComputedStyle(overlay) : null;
+      logDebug("NewTripDialog.tsx:measure", "dialog layout measured", "H6-H8", {
         trigger,
+        runId: "overlay-scroll-v2",
         formHeight: form?.offsetHeight ?? null,
+        formMinHeight: formStyle?.minHeight ?? null,
         formMaxHeight: formStyle?.maxHeight ?? null,
-        formOverflow: formStyle?.overflow ?? null,
+        overlayScrollHeight: overlay?.scrollHeight ?? null,
+        overlayClientHeight: overlay?.clientHeight ?? null,
+        overlayScrollTop: overlay?.scrollTop ?? null,
+        overlayOverflowY: overlayStyle?.overflowY ?? null,
+        overlayCanScroll: overlay
+          ? overlay.scrollHeight > overlay.clientHeight
+          : null,
         contentScrollHeight: content?.scrollHeight ?? null,
         contentClientHeight: content?.clientHeight ?? null,
         contentOverflowY: contentStyle?.overflowY ?? null,
@@ -138,7 +164,7 @@ const NewTripDialog = ({ open, onClose, onCreated }: NewTripDialogProps) => {
           : null,
         viewportHeight: vh,
         windowInnerHeight: window.innerHeight,
-        formExceedsViewport: form ? form.offsetHeight > vh - 32 : null,
+        bodyOverflow: getComputedStyle(document.body).overflow,
         isSafari: /^((?!chrome|android).)*safari/i.test(navigator.userAgent),
       });
     };
@@ -146,6 +172,16 @@ const NewTripDialog = ({ open, onClose, onCreated }: NewTripDialogProps) => {
     requestAnimationFrame(() => measureLayout("open"));
 
     const contentEl = contentRef.current;
+    const overlayEl = overlayRef.current;
+
+    const onOverlayScroll = () => {
+      logDebug("NewTripDialog.tsx:overlay-scroll", "overlay scrolled", "H6", {
+        scrollTop: overlayEl?.scrollTop ?? null,
+        scrollHeight: overlayEl?.scrollHeight ?? null,
+        clientHeight: overlayEl?.clientHeight ?? null,
+      });
+    };
+
     const onContentScroll = () => {
       logDebug("NewTripDialog.tsx:content-scroll", "content area scrolled", "H1", {
         scrollTop: contentEl?.scrollTop ?? null,
@@ -154,16 +190,20 @@ const NewTripDialog = ({ open, onClose, onCreated }: NewTripDialogProps) => {
       });
     };
 
-    const onTouchMove = () => {
-      if (touchLogCountRef.current >= 5) return;
+    const onTouchMove = (e: TouchEvent) => {
+      if (touchLogCountRef.current >= 8) return;
       touchLogCountRef.current += 1;
-      logDebug("NewTripDialog.tsx:touchmove", "touch scroll attempt on content", "H3", {
+      logDebug("NewTripDialog.tsx:touchmove", "touch scroll attempt", "H3-H8", {
         attempt: touchLogCountRef.current,
-        scrollTop: contentEl?.scrollTop ?? null,
+        targetTag: (e.target as HTMLElement)?.tagName ?? null,
+        overlayScrollTop: overlayEl?.scrollTop ?? null,
+        overlayCanScroll: overlayEl
+          ? overlayEl.scrollHeight > overlayEl.clientHeight
+          : null,
+        contentScrollTop: contentEl?.scrollTop ?? null,
         contentCanScroll: contentEl
           ? contentEl.scrollHeight > contentEl.clientHeight
           : null,
-        contentOverflowY: contentEl ? getComputedStyle(contentEl).overflowY : null,
       });
     };
 
@@ -189,15 +229,17 @@ const NewTripDialog = ({ open, onClose, onCreated }: NewTripDialogProps) => {
       });
     };
 
+    overlayEl?.addEventListener("scroll", onOverlayScroll, { passive: true });
     contentEl?.addEventListener("scroll", onContentScroll, { passive: true });
-    contentEl?.addEventListener("touchmove", onTouchMove, { passive: true });
+    overlayEl?.addEventListener("touchmove", onTouchMove, { passive: true });
     window.visualViewport?.addEventListener("resize", onViewportChange);
     window.visualViewport?.addEventListener("scroll", onViewportChange);
     document.addEventListener("focusin", onFocusIn);
 
     return () => {
+      overlayEl?.removeEventListener("scroll", onOverlayScroll);
       contentEl?.removeEventListener("scroll", onContentScroll);
-      contentEl?.removeEventListener("touchmove", onTouchMove);
+      overlayEl?.removeEventListener("touchmove", onTouchMove);
       window.visualViewport?.removeEventListener("resize", onViewportChange);
       window.visualViewport?.removeEventListener("scroll", onViewportChange);
       document.removeEventListener("focusin", onFocusIn);
@@ -319,23 +361,25 @@ const NewTripDialog = ({ open, onClose, onCreated }: NewTripDialogProps) => {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      ref={overlayRef}
+      className="fixed inset-0 z-50 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]"
       aria-modal="true"
       role="dialog"
     >
       <button
         type="button"
         aria-label={tCommon("close")}
-        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+        className="fixed inset-0 bg-black/70 backdrop-blur-sm"
         onClick={() => !loading && closeDialog()}
       />
 
-      <form
-        ref={formRef}
-        onSubmit={handleSubmit}
-        className="relative w-full max-w-lg overflow-hidden rounded-2xl border border-white/10 bg-[#1a1a1a] shadow-2xl"
-      >
-        <div className="flex items-center justify-between border-b border-white/5 px-5 py-4">
+      <div className="relative flex min-h-full justify-center p-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))]">
+        <form
+          ref={formRef}
+          onSubmit={handleSubmit}
+          className="relative z-10 my-auto w-full max-w-lg overflow-hidden rounded-2xl border border-white/10 bg-[#1a1a1a] shadow-2xl"
+        >
+        <div className="flex shrink-0 items-center justify-between border-b border-white/5 px-5 py-4">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-widest text-emerald-400/70">
               {t("kicker")}
@@ -511,7 +555,7 @@ const NewTripDialog = ({ open, onClose, onCreated }: NewTripDialogProps) => {
           ) : null}
         </div>
 
-        <div className="flex items-center justify-end gap-2 border-t border-white/5 bg-white/[0.02] px-5 py-3.5">
+        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-white/5 bg-white/[0.02] px-5 py-3.5">
           <button
             type="button"
             onClick={closeDialog}
@@ -536,6 +580,7 @@ const NewTripDialog = ({ open, onClose, onCreated }: NewTripDialogProps) => {
           </button>
         </div>
       </form>
+      </div>
     </div>
   );
 };
