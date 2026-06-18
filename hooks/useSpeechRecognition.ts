@@ -108,6 +108,26 @@ export function useSpeechRecognition({
     };
 
     rec.onerror = (event: SpeechRecognitionErrorEvent) => {
+      // #region agent log
+      fetch("http://127.0.0.1:7872/ingest/266cf421-78fa-40dc-aeaf-b1a54776429d", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "89ffaa" },
+        body: JSON.stringify({
+          sessionId: "89ffaa",
+          hypothesisId: "H9-H11",
+          location: "useSpeechRecognition.ts:onerror",
+          message: "speech recognition error",
+          data: {
+            error: event.error,
+            lang: rec.lang,
+            continuous: rec.continuous,
+            interimResults: rec.interimResults,
+            ua: typeof navigator !== "undefined" ? navigator.userAgent.slice(0, 120) : "",
+          },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
       setErrorCode(event.error);
       if (event.error === "not-allowed" || event.error === "service-not-allowed") {
         setStatus("error");
@@ -128,8 +148,36 @@ export function useSpeechRecognition({
 
     try {
       rec.start();
+      // #region agent log
+      fetch("http://127.0.0.1:7872/ingest/266cf421-78fa-40dc-aeaf-b1a54776429d", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "89ffaa" },
+        body: JSON.stringify({
+          sessionId: "89ffaa",
+          hypothesisId: "H9-H11",
+          location: "useSpeechRecognition.ts:start",
+          message: "speech recognition started",
+          data: { lang: rec.lang, continuous: rec.continuous, interimResults: rec.interimResults },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
       setStatus("listening");
-    } catch {
+    } catch (err) {
+      // #region agent log
+      fetch("http://127.0.0.1:7872/ingest/266cf421-78fa-40dc-aeaf-b1a54776429d", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "89ffaa" },
+        body: JSON.stringify({
+          sessionId: "89ffaa",
+          hypothesisId: "H11",
+          location: "useSpeechRecognition.ts:start-catch",
+          message: "speech recognition start threw",
+          data: { err: err instanceof Error ? err.message : String(err) },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
       setStatus("error");
       setErrorCode("start-failed");
     }

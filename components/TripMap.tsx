@@ -358,6 +358,30 @@ function TripMapView({
 
   const closePopup = () => onInfoPointChange(null);
 
+  useEffect(() => {
+    // #region agent log
+    fetch("http://127.0.0.1:7872/ingest/266cf421-78fa-40dc-aeaf-b1a54776429d", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "89ffaa" },
+      body: JSON.stringify({
+        sessionId: "89ffaa",
+        hypothesisId: "H2-H4",
+        location: "TripMap.tsx:infoPoint-effect",
+        message: "infoPoint state changed",
+        data: {
+          hasInfoPoint: !!infoPoint,
+          kind: infoPoint?.kind ?? null,
+          id:
+            infoPoint?.kind === "activity"
+              ? infoPoint.activityId
+              : infoPoint?.id ?? null,
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
+  }, [infoPoint]);
+
   return (
     <MapGL
       initialViewState={{
@@ -369,7 +393,23 @@ function TripMapView({
       style={{ width: "100%", height: "100%" }}
       cooperativeGestures
       reuseMaps
-      onClick={(_e: MapLayerMouseEvent) => closePopup()}
+      onClick={(_e: MapLayerMouseEvent) => {
+        // #region agent log
+        fetch("http://127.0.0.1:7872/ingest/266cf421-78fa-40dc-aeaf-b1a54776429d", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "89ffaa" },
+          body: JSON.stringify({
+            sessionId: "89ffaa",
+            hypothesisId: "H1",
+            location: "TripMap.tsx:map-onClick",
+            message: "map background clicked — closing popup",
+            data: { hadInfoPoint: !!infoPoint },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+        // #endregion
+        closePopup();
+      }}
     >
       <FitMapBounds points={fitPoints} disabled={!!infoPoint} />
       <CenterOnInfoPoint infoPoint={infoPoint} />
@@ -398,6 +438,20 @@ function TripMapView({
             anchor="center"
             onClick={(e) => {
               e.originalEvent.stopPropagation();
+              // #region agent log
+              fetch("http://127.0.0.1:7872/ingest/266cf421-78fa-40dc-aeaf-b1a54776429d", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "89ffaa" },
+                body: JSON.stringify({
+                  sessionId: "89ffaa",
+                  hypothesisId: "H1-H3",
+                  location: "TripMap.tsx:marker-onClick",
+                  message: "activity marker clicked",
+                  data: { activityId: a.activityId, dayIdx: a.dayIdx },
+                  timestamp: Date.now(),
+                }),
+              }).catch(() => {});
+              // #endregion
               onInfoPointChange(a);
             }}
           >
@@ -558,12 +612,63 @@ const TripMap = ({
     if (!focusTarget) return;
     setExpanded(true);
     const t = window.setTimeout(() => {
+      // #region agent log
+      fetch("http://127.0.0.1:7872/ingest/266cf421-78fa-40dc-aeaf-b1a54776429d", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "89ffaa" },
+        body: JSON.stringify({
+          sessionId: "89ffaa",
+          hypothesisId: "H5",
+          location: "TripMap.tsx:scrollIntoView",
+          message: "focusTarget triggered scrollIntoView",
+          data: {
+            activityId: focusTarget.activityId,
+            token: focusTarget.token,
+            scrollY: window.scrollY,
+          },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
       document
         .getElementById("trip-map-section")
         ?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 80);
     return () => window.clearTimeout(t);
   }, [focusTarget?.activityId, focusTarget?.token]);
+
+  useEffect(() => {
+    let lastScrollY = window.scrollY;
+    const onScroll = () => {
+      const dy = Math.abs(window.scrollY - lastScrollY);
+      if (dy > 80) {
+        const section = document.getElementById("trip-map-section");
+        const rect = section?.getBoundingClientRect();
+        // #region agent log
+        fetch("http://127.0.0.1:7872/ingest/266cf421-78fa-40dc-aeaf-b1a54776429d", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "89ffaa" },
+          body: JSON.stringify({
+            sessionId: "89ffaa",
+            hypothesisId: "H6-H7",
+            location: "TripMap.tsx:scroll-jump",
+            message: "large scroll delta detected",
+            data: {
+              expanded,
+              scrollY: window.scrollY,
+              delta: window.scrollY - lastScrollY,
+              mapSectionTop: rect?.top ?? null,
+            },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+        // #endregion
+      }
+      lastScrollY = window.scrollY;
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, [expanded]);
 
   // Close any open popup first, then open the newly requested activity.
   useEffect(() => {
@@ -612,7 +717,26 @@ const TripMap = ({
     >
       <button
         type="button"
-        onClick={() => setExpanded((v) => !v)}
+        onClick={() => {
+          setExpanded((v) => {
+            const next = !v;
+            // #region agent log
+            fetch("http://127.0.0.1:7872/ingest/266cf421-78fa-40dc-aeaf-b1a54776429d", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "89ffaa" },
+              body: JSON.stringify({
+                sessionId: "89ffaa",
+                hypothesisId: "H6-H7",
+                location: "TripMap.tsx:toggle-expanded",
+                message: "map expand/collapse toggled",
+                data: { expanded: next, scrollY: window.scrollY },
+                timestamp: Date.now(),
+              }),
+            }).catch(() => {});
+            // #endregion
+            return next;
+          });
+        }}
         aria-expanded={expanded}
         className={`flex w-full items-center justify-between gap-3 px-5 py-4 text-left transition-colors hover:bg-white/[0.02] ${
           expanded ? "border-b border-white/[0.06]" : ""

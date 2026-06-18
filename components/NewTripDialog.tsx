@@ -84,6 +84,29 @@ const NewTripDialog = ({ open, onClose, onCreated }: NewTripDialogProps) => {
       setError(null);
       setInfo(null);
       setTimeout(() => firstFieldRef.current?.focus(), 50);
+      // #region agent log
+      requestAnimationFrame(() => {
+        const form = document.querySelector('[role="dialog"] form') as HTMLElement | null;
+        const vh = window.visualViewport?.height ?? window.innerHeight;
+        fetch("http://127.0.0.1:7872/ingest/266cf421-78fa-40dc-aeaf-b1a54776429d", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "89ffaa" },
+          body: JSON.stringify({
+            sessionId: "89ffaa",
+            hypothesisId: "H8",
+            location: "NewTripDialog.tsx:open-layout",
+            message: "dialog layout measured",
+            data: {
+              formHeight: form?.offsetHeight ?? null,
+              viewportHeight: vh,
+              windowInnerHeight: window.innerHeight,
+              overflows: form ? form.offsetHeight > vh - 32 : null,
+            },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+      });
+      // #endregion
     }
   }, [open]);
 

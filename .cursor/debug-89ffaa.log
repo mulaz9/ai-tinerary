@@ -1,0 +1,3 @@
+{"sessionId":"89ffaa","hypothesisId":"H8","location":"NewTripDialog.tsx:open-layout","message":"dialog layout measured","data":{"formHeight":881,"viewportHeight":546,"windowInnerHeight":546,"overflows":true},"timestamp":1781813822618}
+{"sessionId":"89ffaa","hypothesisId":"H2-H4","location":"TripMap.tsx:infoPoint-effect","message":"infoPoint state changed","data":{"hasInfoPoint":false,"kind":null,"id":null},"timestamp":1781813830454}
+{"sessionId":"89ffaa","hypothesisId":"H2-H4","location":"TripMap.tsx:infoPoint-effect","message":"infoPoint state changed","data":{"hasInfoPoint":false,"kind":null,"id":null},"timestamp":1781813830466}
