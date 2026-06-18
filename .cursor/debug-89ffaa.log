@@ -1,3 +1,16 @@
 {"sessionId":"89ffaa","hypothesisId":"H8","location":"NewTripDialog.tsx:open-layout","message":"dialog layout measured","data":{"formHeight":881,"viewportHeight":546,"windowInnerHeight":546,"overflows":true},"timestamp":1781813822618}
 {"sessionId":"89ffaa","hypothesisId":"H2-H4","location":"TripMap.tsx:infoPoint-effect","message":"infoPoint state changed","data":{"hasInfoPoint":false,"kind":null,"id":null},"timestamp":1781813830454}
 {"sessionId":"89ffaa","hypothesisId":"H2-H4","location":"TripMap.tsx:infoPoint-effect","message":"infoPoint state changed","data":{"hasInfoPoint":false,"kind":null,"id":null},"timestamp":1781813830466}
+{"sessionId":"89ffaa","hypothesisId":"H2-H4","location":"TripMap.tsx:infoPoint-effect","message":"infoPoint state changed","data":{"hasInfoPoint":false,"kind":null,"id":null},"timestamp":1781814089273}
+{"sessionId":"89ffaa","hypothesisId":"H2-H4","location":"TripMap.tsx:infoPoint-effect","message":"infoPoint state changed","data":{"hasInfoPoint":false,"kind":null,"id":null},"timestamp":1781814089286}
+{"sessionId":"89ffaa","hypothesisId":"H6-H7","location":"TripMap.tsx:toggle-expanded","message":"map expand/collapse toggled","data":{"expanded":true,"scrollY":0},"timestamp":1781814090686}
+{"sessionId":"89ffaa","hypothesisId":"H6-H7","location":"TripMap.tsx:toggle-expanded","message":"map expand/collapse toggled","data":{"expanded":true,"scrollY":0},"timestamp":1781814090688}
+{"sessionId":"89ffaa","hypothesisId":"H6-H7","location":"TripMap.tsx:scroll-jump","message":"large scroll delta detected","data":{"expanded":true,"scrollY":225,"delta":103,"mapSectionTop":223},"timestamp":1781814091458}
+{"sessionId":"89ffaa","hypothesisId":"H1","location":"TripMap.tsx:map-onClick","message":"map background clicked — closing popup","data":{"hadInfoPoint":false},"timestamp":1781814092638}
+{"sessionId":"89ffaa","hypothesisId":"H1-H3","location":"TripMap.tsx:marker-onClick","message":"activity marker clicked","data":{"activityId":"user-mpa9bfw5-77mr-d5-a4","dayIdx":4},"timestamp":1781814093589}
+{"sessionId":"89ffaa","hypothesisId":"H2-H4","location":"TripMap.tsx:infoPoint-effect","message":"infoPoint state changed","data":{"hasInfoPoint":true,"kind":"activity","id":"user-mpa9bfw5-77mr-d5-a4"},"timestamp":1781814093601}
+{"sessionId":"89ffaa","hypothesisId":"H2-H4","location":"TripMap.tsx:infoPoint-effect","message":"infoPoint state changed","data":{"hasInfoPoint":false,"kind":null,"id":null},"timestamp":1781814095844}
+{"sessionId":"89ffaa","hypothesisId":"H1-H3","location":"TripMap.tsx:marker-onClick","message":"activity marker clicked","data":{"activityId":"user-mpa9bfw5-77mr-d4-a1","dayIdx":3},"timestamp":1781814096893}
+{"sessionId":"89ffaa","hypothesisId":"H2-H4","location":"TripMap.tsx:infoPoint-effect","message":"infoPoint state changed","data":{"hasInfoPoint":true,"kind":"activity","id":"user-mpa9bfw5-77mr-d4-a1"},"timestamp":1781814096908}
+{"sessionId":"89ffaa","hypothesisId":"H2-H4","location":"TripMap.tsx:infoPoint-effect","message":"infoPoint state changed","data":{"hasInfoPoint":false,"kind":null,"id":null},"timestamp":1781814098366}
+{"sessionId":"89ffaa","hypothesisId":"H8","location":"NewTripDialog.tsx:open-layout","message":"dialog layout measured","data":{"formHeight":856,"viewportHeight":959,"windowInnerHeight":959,"overflows":false},"timestamp":1781815520958}

@@ -52,6 +52,9 @@ const NewTripDialog = ({ open, onClose, onCreated }: NewTripDialogProps) => {
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const firstFieldRef = useRef<HTMLInputElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const touchLogCountRef = useRef(0);
   const { trips, hydrated } = useAllTrips();
   const atLimit = hydrated && trips.length >= MAX_USER_TRIPS;
 
@@ -84,30 +87,121 @@ const NewTripDialog = ({ open, onClose, onCreated }: NewTripDialogProps) => {
       setError(null);
       setInfo(null);
       setTimeout(() => firstFieldRef.current?.focus(), 50);
-      // #region agent log
-      requestAnimationFrame(() => {
-        const form = document.querySelector('[role="dialog"] form') as HTMLElement | null;
-        const vh = window.visualViewport?.height ?? window.innerHeight;
-        fetch("http://127.0.0.1:7872/ingest/266cf421-78fa-40dc-aeaf-b1a54776429d", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "89ffaa" },
-          body: JSON.stringify({
-            sessionId: "89ffaa",
-            hypothesisId: "H8",
-            location: "NewTripDialog.tsx:open-layout",
-            message: "dialog layout measured",
-            data: {
-              formHeight: form?.offsetHeight ?? null,
-              viewportHeight: vh,
-              windowInnerHeight: window.innerHeight,
-              overflows: form ? form.offsetHeight > vh - 32 : null,
-            },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
-      });
-      // #endregion
+      touchLogCountRef.current = 0;
     }
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const logDebug = (
+      location: string,
+      message: string,
+      hypothesisId: string,
+      data: Record<string, unknown>,
+    ) => {
+      // #region agent log
+      fetch("http://127.0.0.1:7872/ingest/266cf421-78fa-40dc-aeaf-b1a54776429d", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Debug-Session-Id": "4dd1f4",
+        },
+        body: JSON.stringify({
+          sessionId: "4dd1f4",
+          location,
+          message,
+          data,
+          timestamp: Date.now(),
+          hypothesisId,
+        }),
+      }).catch(() => {});
+      // #endregion
+    };
+
+    const measureLayout = (trigger: string) => {
+      const form = formRef.current;
+      const content = contentRef.current;
+      const vh = window.visualViewport?.height ?? window.innerHeight;
+      const formStyle = form ? getComputedStyle(form) : null;
+      const contentStyle = content ? getComputedStyle(content) : null;
+      logDebug("NewTripDialog.tsx:measure", "dialog layout measured", "H1-H4", {
+        trigger,
+        formHeight: form?.offsetHeight ?? null,
+        formMaxHeight: formStyle?.maxHeight ?? null,
+        formOverflow: formStyle?.overflow ?? null,
+        contentScrollHeight: content?.scrollHeight ?? null,
+        contentClientHeight: content?.clientHeight ?? null,
+        contentOverflowY: contentStyle?.overflowY ?? null,
+        contentCanScroll: content
+          ? content.scrollHeight > content.clientHeight
+          : null,
+        viewportHeight: vh,
+        windowInnerHeight: window.innerHeight,
+        formExceedsViewport: form ? form.offsetHeight > vh - 32 : null,
+        isSafari: /^((?!chrome|android).)*safari/i.test(navigator.userAgent),
+      });
+    };
+
+    requestAnimationFrame(() => measureLayout("open"));
+
+    const contentEl = contentRef.current;
+    const onContentScroll = () => {
+      logDebug("NewTripDialog.tsx:content-scroll", "content area scrolled", "H1", {
+        scrollTop: contentEl?.scrollTop ?? null,
+        scrollHeight: contentEl?.scrollHeight ?? null,
+        clientHeight: contentEl?.clientHeight ?? null,
+      });
+    };
+
+    const onTouchMove = () => {
+      if (touchLogCountRef.current >= 5) return;
+      touchLogCountRef.current += 1;
+      logDebug("NewTripDialog.tsx:touchmove", "touch scroll attempt on content", "H3", {
+        attempt: touchLogCountRef.current,
+        scrollTop: contentEl?.scrollTop ?? null,
+        contentCanScroll: contentEl
+          ? contentEl.scrollHeight > contentEl.clientHeight
+          : null,
+        contentOverflowY: contentEl ? getComputedStyle(contentEl).overflowY : null,
+      });
+    };
+
+    const onViewportChange = () => {
+      logDebug("NewTripDialog.tsx:viewport", "visualViewport changed", "H2", {
+        visualViewportHeight: window.visualViewport?.height ?? null,
+        visualViewportOffsetTop: window.visualViewport?.offsetTop ?? null,
+        windowScrollY: window.scrollY,
+      });
+      measureLayout("viewport-change");
+    };
+
+    const onFocusIn = (e: FocusEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName !== "INPUT" && target.tagName !== "TEXTAREA") return;
+      logDebug("NewTripDialog.tsx:focus", "field focused", "H5", {
+        tag: target.tagName,
+        type: (target as HTMLInputElement).type ?? null,
+        windowScrollY: window.scrollY,
+        formExceedsViewport:
+          (formRef.current?.offsetHeight ?? 0) >
+          (window.visualViewport?.height ?? window.innerHeight) - 32,
+      });
+    };
+
+    contentEl?.addEventListener("scroll", onContentScroll, { passive: true });
+    contentEl?.addEventListener("touchmove", onTouchMove, { passive: true });
+    window.visualViewport?.addEventListener("resize", onViewportChange);
+    window.visualViewport?.addEventListener("scroll", onViewportChange);
+    document.addEventListener("focusin", onFocusIn);
+
+    return () => {
+      contentEl?.removeEventListener("scroll", onContentScroll);
+      contentEl?.removeEventListener("touchmove", onTouchMove);
+      window.visualViewport?.removeEventListener("resize", onViewportChange);
+      window.visualViewport?.removeEventListener("scroll", onViewportChange);
+      document.removeEventListener("focusin", onFocusIn);
+    };
   }, [open]);
 
   useEffect(() => {
@@ -237,6 +331,7 @@ const NewTripDialog = ({ open, onClose, onCreated }: NewTripDialogProps) => {
       />
 
       <form
+        ref={formRef}
         onSubmit={handleSubmit}
         className="relative w-full max-w-lg overflow-hidden rounded-2xl border border-white/10 bg-[#1a1a1a] shadow-2xl"
       >
@@ -260,7 +355,7 @@ const NewTripDialog = ({ open, onClose, onCreated }: NewTripDialogProps) => {
           </button>
         </div>
 
-        <div className="space-y-4 px-5 py-5">
+        <div ref={contentRef} className="space-y-4 px-5 py-5">
           {atLimit ? (
             <div className="rounded-xl border border-amber-400/20 bg-amber-500/10 px-3 py-2.5 text-[13px] text-amber-200">
               {LIMIT_MESSAGE}
