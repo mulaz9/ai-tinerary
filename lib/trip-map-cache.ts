@@ -1,6 +1,7 @@
 "use client";
 
 import type { Trip } from "../types";
+import { GEO_QUERY_VERSION } from "./geo-query-version";
 
 /**
  * Trip-level map geocoding cache.
@@ -55,7 +56,7 @@ export function buildTripMapDataKey(trip: Trip): string {
   const accs = (trip.accommodations ?? [])
     .map((a) => `${a.id}:${a.name}`)
     .join("|");
-  return `${trip.location}::${acts}::${accs}`;
+  return `${GEO_QUERY_VERSION}::${trip.location}::${acts}::${accs}`;
 }
 
 export function buildTripMapCacheKey(trip: Trip): string {

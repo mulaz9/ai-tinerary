@@ -13,6 +13,9 @@
 # testing
 /coverage
 
+# persistent geocode cache
+/.cache
+
 # next.js
 /.next/
 /out/

@@ -12,6 +12,16 @@ const LEGACY_STORAGE_KEY = "ai-tinerary.user-trips.v1";
 type Tab = "signin" | "signup";
 type View = "form" | "forgot";
 
+function authRedirectOrigin(): string {
+  if (typeof window === "undefined") return "";
+  const configured = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/$/, "");
+  return configured || window.location.origin;
+}
+
+function buildAuthCallbackUrl(nextPath: string): string {
+  return `${authRedirectOrigin()}/auth/callback?next=${encodeURIComponent(nextPath)}`;
+}
+
 function LoginInner() {
   const t = useTranslations("login");
   const tCommon = useTranslations("common");
@@ -37,6 +47,11 @@ function LoginInner() {
     errorParam ? t("errorLoginFailed") : null,
   );
   const [info, setInfo] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
+  const [pendingConfirmEmail, setPendingConfirmEmail] = useState<string | null>(
+    null,
+  );
+  const [resendCooldown, setResendCooldown] = useState(0);
 
   const [localTripCount, setLocalTripCount] = useState<number | null>(null);
 
@@ -74,9 +89,78 @@ function LoginInner() {
     return tab === "signin" ? t("subSignin") : t("subSignup");
   }, [view, signedOut, accountDeleted, tab, t]);
 
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = window.setInterval(() => {
+      setResendCooldown((seconds) => Math.max(0, seconds - 1));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [resendCooldown]);
+
+  function startResendCooldown(seconds = 60) {
+    setResendCooldown(seconds);
+  }
+
+  async function sendConfirmationResend(targetEmail: string, source: string) {
+    const supabase = createSupabaseBrowserClient();
+    if (!supabase) {
+      throw new Error(t("errorSupabase"));
+    }
+    const emailRedirectTo = buildAuthCallbackUrl(next.startsWith("/") ? next : "/");
+    const { error } = await supabase.auth.resend({
+      type: "signup",
+      email: targetEmail,
+      options: { emailRedirectTo },
+    });
+    logAuthDebug(`login/page.tsx:${source}`, "resend response", "H6", {
+      runId: "post-fix-v3",
+      hasError: Boolean(error),
+      errorMessage: error?.message ?? null,
+      errorStatus: error?.status ?? null,
+      emailRedirectTo,
+      authRedirectOrigin: authRedirectOrigin(),
+    });
+    if (error) throw error;
+    startResendCooldown();
+    return emailRedirectTo;
+  }
+
   function clearMessages() {
     setError(null);
     setInfo(null);
+    setWarning(null);
+    setPendingConfirmEmail(null);
+  }
+
+  function switchToSignIn() {
+    setTab("signin");
+    setView("form");
+    setWarning(null);
+    setError(null);
+    setInfo(null);
+    setPendingConfirmEmail(null);
+  }
+
+  function logAuthDebug(
+    location: string,
+    message: string,
+    hypothesisId: string,
+    data: Record<string, unknown>,
+  ) {
+    // #region agent log
+    fetch("/api/debug-log", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId: "4dd1f4",
+        location,
+        message,
+        data,
+        timestamp: Date.now(),
+        hypothesisId,
+      }),
+    }).catch(() => {});
+    // #endregion
   }
 
   function switchTab(nextTab: Tab) {
@@ -93,9 +177,7 @@ function LoginInner() {
       if (!supabase) {
         throw new Error(t("errorSupabase"));
       }
-      const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(
-        next,
-      )}`;
+      const redirectTo = buildAuthCallbackUrl(next.startsWith("/") ? next : "/");
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: { redirectTo },
@@ -150,27 +232,76 @@ function LoginInner() {
         return;
       }
 
-      const emailRedirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(
-        next,
-      )}`;
+      const safeNext = next.startsWith("/") ? next : "/";
+      const emailRedirectTo = buildAuthCallbackUrl(safeNext);
+      logAuthDebug("login/page.tsx:signup-start", "signUp requested", "H2-H3", {
+        origin: window.location.origin,
+        authRedirectOrigin: authRedirectOrigin(),
+        emailRedirectTo,
+        next: safeNext,
+      });
       const { data, error } = await supabase.auth.signUp({
         email: trimmedEmail,
         password,
         options: { emailRedirectTo },
       });
+      logAuthDebug("login/page.tsx:signup-result", "signUp response", "H1-H3", {
+        hasError: Boolean(error),
+        errorMessage: error?.message ?? null,
+        errorStatus: error?.status ?? null,
+        hasSession: Boolean(data.session),
+        userId: data.user?.id ?? null,
+        emailConfirmedAt: data.user?.email_confirmed_at ?? null,
+        identitiesCount: data.user?.identities?.length ?? 0,
+        confirmationSentAt: data.user?.confirmation_sent_at ?? null,
+        origin: window.location.origin,
+        authRedirectOrigin: authRedirectOrigin(),
+        emailRedirectTo,
+      });
       if (error) throw error;
 
-      // If email confirmations are enabled in Supabase (default), no session
-      // is returned and the user must click the link in the email. If they
-      // are disabled, the user is signed in immediately.
       if (data.session) {
-        router.push(next.startsWith("/") ? next : "/");
+        router.push(safeNext);
         router.refresh();
         return;
       }
-      setInfo(t("confirmEmailSent", { email: trimmedEmail }));
+
+      const existingAccount = (data.user?.identities?.length ?? 0) === 0;
+      if (existingAccount) {
+        logAuthDebug(
+          "login/page.tsx:signup-existing",
+          "email already registered",
+          "H1",
+          {
+            runId: "existing-account-warning",
+            emailRedirectTo,
+          },
+        );
+        setWarning(t("signupExistingAccountWarning", { email: trimmedEmail }));
+      } else {
+        setPendingConfirmEmail(trimmedEmail);
+        setInfo(t("confirmEmailSent", { email: trimmedEmail }));
+      }
       setPassword("");
       setConfirmPassword("");
+    } catch (err) {
+      console.error(err);
+      setError(translateAuthError(err, t));
+    } finally {
+      setEmailLoading(false);
+    }
+  }
+
+  async function resendConfirmationEmail() {
+    if (!pendingConfirmEmail || resendCooldown > 0) return;
+    const confirmEmail = pendingConfirmEmail;
+    setError(null);
+    setInfo(null);
+    setEmailLoading(true);
+    try {
+      await sendConfirmationResend(confirmEmail, "manual-resend");
+      setPendingConfirmEmail(confirmEmail);
+      setInfo(t("confirmEmailResent", { email: confirmEmail }));
     } catch (err) {
       console.error(err);
       setError(translateAuthError(err, t));
@@ -194,9 +325,7 @@ function LoginInner() {
       if (!supabase) {
         throw new Error(t("errorSupabase"));
       }
-      const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(
-        "/auth/update-password",
-      )}`;
+      const redirectTo = buildAuthCallbackUrl("/auth/update-password");
       const { error } = await supabase.auth.resetPasswordForEmail(trimmed, {
         redirectTo,
       });
@@ -418,10 +547,59 @@ function LoginInner() {
             {error}
           </p>
         ) : null}
+        {warning ? (
+          <div className="mt-4 space-y-3 rounded-2xl border border-amber-500/25 bg-amber-500/10 px-3 py-3">
+            <p className="text-center text-xs leading-relaxed text-amber-100">
+              {warning}
+            </p>
+            <p className="text-center text-[11px] leading-relaxed text-amber-200/70">
+              {t("signupExistingAccountHint")}
+            </p>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <button
+                type="button"
+                onClick={switchToSignIn}
+                className="inline-flex flex-1 items-center justify-center rounded-full border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-100 transition hover:bg-amber-500/20"
+              >
+                {t("signupGoToSignIn")}
+              </button>
+              <button
+                type="button"
+                onClick={signInWithGoogle}
+                disabled={oauthLoading}
+                className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-white px-3 py-2 text-xs font-semibold text-neutral-900 transition hover:bg-white/90 disabled:opacity-60"
+              >
+                <GoogleIcon />
+                {oauthLoading ? t("redirecting") : t("continueWithGoogle")}
+              </button>
+            </div>
+          </div>
+        ) : null}
         {info ? (
-          <p className="mt-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-center text-xs text-emerald-200">
-            {info}
-          </p>
+          <div className="mt-4 space-y-2">
+            <p className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-center text-xs text-emerald-200">
+              {info}
+            </p>
+            {pendingConfirmEmail ? (
+              <>
+                <p className="text-center text-[11px] leading-relaxed text-white/40">
+                  {t("confirmEmailDeliveryHint")}
+                </p>
+                <button
+                  type="button"
+                  onClick={resendConfirmationEmail}
+                  disabled={emailLoading || resendCooldown > 0}
+                  className="inline-flex w-full items-center justify-center text-xs text-emerald-300/80 underline-offset-2 hover:text-emerald-200 hover:underline disabled:opacity-60"
+                >
+                  {emailLoading
+                    ? t("resendConfirmationSending")
+                    : resendCooldown > 0
+                      ? t("resendConfirmationWait", { seconds: resendCooldown })
+                      : t("resendConfirmation")}
+                </button>
+              </>
+            ) : null}
+          </div>
         ) : null}
 
         <div className="my-5 flex items-center gap-3 text-[10px] font-semibold uppercase tracking-widest text-white/30">

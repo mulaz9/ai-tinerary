@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useCallback, useEffect, useMemo, useState } from "react";
+import { use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { LOCALE_NAMES, normalizeLocale } from "../../../i18n/config";
@@ -63,7 +63,8 @@ export default function TripDetails({
   const [trip, setTrip] = useState<Trip | undefined>(storedTrip);
 
   useEffect(() => {
-    if (storedTrip) setTrip(storedTrip);
+    if (!storedTrip) return;
+    setTrip((prev) => (prev === storedTrip ? prev : storedTrip));
   }, [storedTrip]);
 
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
@@ -83,18 +84,21 @@ export default function TripDetails({
   >({});
   const imagesByActivityId = useActivityImages(trip);
 
-  // ── Weather fetch (unchanged) ─────────────────────────────────────────
-  const datesKey = useMemo(
-    () => trip?.days.map((d) => d.date).join(",") ?? "",
-    [trip],
-  );
+  // ── Weather fetch ─────────────────────────────────────────────────────
+  const weatherDatesKey = trip?.days.map((d) => d.date).join(",") ?? "";
+  const weatherFetchKey = trip?.location
+    ? `${trip.location}::${weatherDatesKey}`
+    : "";
+  const lastWeatherFetchKeyRef = useRef("");
 
   useEffect(() => {
-    if (!trip || !datesKey) return;
+    if (!trip?.location || !weatherDatesKey) return;
+    if (lastWeatherFetchKeyRef.current === weatherFetchKey) return;
+    lastWeatherFetchKeyRef.current = weatherFetchKey;
     let cancelled = false;
     const url =
       `/api/weather?location=${encodeURIComponent(trip.location)}` +
-      `&dates=${encodeURIComponent(datesKey)}`;
+      `&dates=${encodeURIComponent(weatherDatesKey)}`;
 
     fetch(url)
       .then((res) => (res.ok ? res.json() : { weatherByDate: {} }))
@@ -108,7 +112,7 @@ export default function TripDetails({
     return () => {
       cancelled = true;
     };
-  }, [trip?.location, datesKey, trip]);
+  }, [weatherFetchKey]);
 
   // ── Mutations ─────────────────────────────────────────────────────────
 

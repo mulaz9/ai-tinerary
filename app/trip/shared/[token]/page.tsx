@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useCallback, useEffect, useMemo, useState } from "react";
+import { use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
@@ -124,18 +124,20 @@ export default function SharedTripPage({
     };
   }, [token, router, t]);
 
-  // Weather fetch
-  const datesKey = useMemo(
-    () => trip?.days.map((d) => d.date).join(",") ?? "",
-    [trip],
-  );
+  const weatherDatesKey = trip?.days.map((d) => d.date).join(",") ?? "";
+  const weatherFetchKey = trip?.location
+    ? `${trip.location}::${weatherDatesKey}`
+    : "";
+  const lastWeatherFetchKeyRef = useRef("");
 
   useEffect(() => {
-    if (!trip || !datesKey) return;
+    if (!trip?.location || !weatherDatesKey) return;
+    if (lastWeatherFetchKeyRef.current === weatherFetchKey) return;
+    lastWeatherFetchKeyRef.current = weatherFetchKey;
     let cancelled = false;
     const url =
       `/api/weather?location=${encodeURIComponent(trip.location)}` +
-      `&dates=${encodeURIComponent(datesKey)}`;
+      `&dates=${encodeURIComponent(weatherDatesKey)}`;
 
     fetch(url)
       .then((res) => (res.ok ? res.json() : { weatherByDate: {} }))
@@ -149,7 +151,7 @@ export default function SharedTripPage({
     return () => {
       cancelled = true;
     };
-  }, [trip?.location, datesKey, trip]);
+  }, [weatherFetchKey]);
 
   const commit = useCallback(
     (next: Trip) => {

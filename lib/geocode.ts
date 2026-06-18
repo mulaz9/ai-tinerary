@@ -16,7 +16,7 @@ export interface LatLon {
 }
 
 /** Only successful geocodes are cached (never `null`). */
-const STORAGE_KEY = "ai-tinerary.geocode-cache.v2";
+const STORAGE_KEY = "ai-tinerary.geocode-cache.v3";
 const LEGACY_STORAGE_KEYS = ["ai-tinerary.geocode-cache.v1"];
 
 let memoryCache: Map<string, LatLon> | null = null;
@@ -114,10 +114,11 @@ export async function geocode(
 
   const promise = (async (): Promise<LatLon | null> => {
     try {
-      const res = await fetch(
-        `/api/geocode?q=${encodeURIComponent(query)}`,
-        { cache: "force-cache" },
-      );
+      const params = new URLSearchParams({ location });
+      if (destination?.trim()) params.set("dest", destination.trim());
+      const res = await fetch(`/api/geocode?${params.toString()}`, {
+        cache: "force-cache",
+      });
       if (!res.ok) return null;
       const data: {
         result: { lat: number; lon: number } | null;
@@ -171,42 +172,43 @@ export async function geocodeBatch(
 
   if (uncachedIndices.length === 0) return out;
 
-  const uncachedQueries = uncachedIndices.map((i) => queries[i]);
-  try {
-    const res = await fetch("/api/geocode", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ queries: uncachedQueries }),
-    });
-    if (!res.ok) {
-      for (const i of uncachedIndices) {
-        const fallback = await geocode(items[i].location, items[i].destination);
-        out[i] = fallback;
-        onProgress?.(
-          uncachedIndices.indexOf(i) + (total - uncachedIndices.length) + 1,
-          total,
-        );
+  const BATCH_SIZE = 50;
+  for (let start = 0; start < uncachedIndices.length; start += BATCH_SIZE) {
+    const batchIndices = uncachedIndices.slice(start, start + BATCH_SIZE);
+    const uncachedItems = batchIndices.map((i) => ({
+      location: items[i].location,
+      destination: items[i].destination,
+    }));
+    try {
+      const res = await fetch("/api/geocode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items: uncachedItems }),
+      });
+      if (!res.ok) {
+        for (const i of batchIndices) {
+          out[i] = await geocode(items[i].location, items[i].destination);
+        }
+      } else {
+        const data: {
+          results: Array<{ lat: number; lon: number } | null>;
+        } = await res.json();
+        for (let j = 0; j < batchIndices.length; j++) {
+          const i = batchIndices[j];
+          const r = data.results[j];
+          const value = r ? { lat: r.lat, lon: r.lon } : null;
+          out[i] = value;
+          const key = keys[i];
+          if (key) setCached(key, value);
+        }
       }
-      return out;
-    }
-    const data: {
-      results: Array<{ lat: number; lon: number } | null>;
-    } = await res.json();
-    let done = total - uncachedIndices.length;
-    for (let j = 0; j < uncachedIndices.length; j++) {
-      const i = uncachedIndices[j];
-      const r = data.results[j];
-      const value = r ? { lat: r.lat, lon: r.lon } : null;
-      out[i] = value;
-      const key = keys[i];
-      if (key) setCached(key, value);
-      done += 1;
+      const done = out.filter((v) => v !== null).length;
       onProgress?.(done, total);
-    }
-  } catch {
-    for (const i of uncachedIndices) {
-      out[i] = await geocode(items[i].location, items[i].destination);
-      onProgress?.(total, total);
+    } catch {
+      for (const i of batchIndices) {
+        out[i] = await geocode(items[i].location, items[i].destination);
+      }
+      onProgress?.(out.filter((v) => v !== null).length, total);
     }
   }
 

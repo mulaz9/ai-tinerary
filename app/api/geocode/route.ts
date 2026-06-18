@@ -1,13 +1,30 @@
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
 import { NextResponse } from "next/server";
+import { buildGeocodeFallbackQueries } from "../../../lib/geocode-fallbacks";
+import { buildMapsQuery } from "../../../lib/maps";
+import {
+  countryCodeFromDestination,
+  pickBestNominatimHit,
+  type LatLon,
+  type NominatimHit,
+} from "../../../lib/nominatim-rank";
 
 /**
  * Geocoding proxy: free Nominatim / OpenStreetMap only (no API key, no billing).
  *
- * GET  /api/geocode?q=Colosseo, Roma, Italia
+ * GET  /api/geocode?q=Colosseo, Roma, Italia&dest=Roma, Italia
  *   → { result: { lat, lon, displayName } | null }
  *
- * POST /api/geocode  { queries: string[] }
+ * POST /api/geocode  { items: [{ location, destination? }] }
  *   → { results: Array<{ lat, lon, displayName } | null> }
+ *
+ * Legacy POST { queries: string[] } is still supported.
  */
 
 export const runtime = "nodejs";
@@ -24,7 +41,60 @@ export interface GeocodeResult {
 
 const cache = new Map<string, GeocodeResult | null>();
 
-// Nominatim fallback: serial queue, 1.1s between outbound calls.
+/**
+ * Persistent on-disk cache for successful geocodes. Nominatim enforces a hard
+ * 1 req/s policy, so geocoding a trip is expensive the first time. Persisting
+ * resolved coordinates to disk means each unique address is only ever fetched
+ * once for the whole machine — survives dev-server reloads and is shared across
+ * every trip that references the same place.
+ */
+const CACHE_FILE = join(process.cwd(), ".cache", "geocode-cache.json");
+
+let cacheLoaded = false;
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+
+function loadDiskCache(): void {
+  if (cacheLoaded) return;
+  cacheLoaded = true;
+  try {
+    if (!existsSync(CACHE_FILE)) return;
+    const parsed = JSON.parse(
+      readFileSync(CACHE_FILE, "utf8"),
+    ) as Record<string, GeocodeResult>;
+    for (const [key, value] of Object.entries(parsed)) {
+      if (value && Number.isFinite(value.lat) && Number.isFinite(value.lon)) {
+        cache.set(key, value);
+      }
+    }
+  } catch {
+    // Corrupt or unreadable cache is non-fatal; we just re-geocode.
+  }
+}
+
+function scheduleDiskSave(): void {
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    try {
+      mkdirSync(dirname(CACHE_FILE), { recursive: true });
+      const obj: Record<string, GeocodeResult> = {};
+      for (const [key, value] of cache.entries()) {
+        if (value) obj[key] = value;
+      }
+      writeFileSync(CACHE_FILE, JSON.stringify(obj), "utf8");
+    } catch {
+      // Best effort: failing to persist just means we re-geocode next time.
+    }
+  }, 1500);
+}
+
+/** Store a result in memory and (for hits) persist it to disk. */
+function cacheSet(key: string, value: GeocodeResult | null): void {
+  cache.set(key, value);
+  if (value) scheduleDiskSave();
+}
+const anchorCache = new Map<string, LatLon | null>();
+
 let nominatimTail: Promise<unknown> = Promise.resolve();
 let lastNominatimAt = 0;
 const NOMINATIM_MIN_MS = 1100;
@@ -48,13 +118,46 @@ function enqueueNominatim<T>(work: () => Promise<T>): Promise<T> {
   return next;
 }
 
-async function geocodeNominatim(query: string): Promise<GeocodeResult | null> {
+function parseNominatimHits(
+  data: Array<{
+    lat: string;
+    lon: string;
+    display_name: string;
+    class?: string;
+    type?: string;
+    importance?: number;
+  }>,
+): NominatimHit[] {
+  const hits: NominatimHit[] = [];
+  for (const row of data) {
+    const lat = Number.parseFloat(row.lat);
+    const lon = Number.parseFloat(row.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+    hits.push({
+      lat,
+      lon,
+      displayName: row.display_name,
+      class: row.class,
+      type: row.type,
+      importance: row.importance,
+    });
+  }
+  return hits;
+}
+
+async function fetchNominatimHits(
+  query: string,
+  opts: { limit?: number; countryCode?: string | null } = {},
+): Promise<NominatimHit[]> {
   return enqueueNominatim(async () => {
     const url = new URL(NOMINATIM_URL);
     url.searchParams.set("q", query);
     url.searchParams.set("format", "json");
-    url.searchParams.set("limit", "1");
+    url.searchParams.set("limit", String(opts.limit ?? 8));
     url.searchParams.set("addressdetails", "0");
+    if (opts.countryCode) {
+      url.searchParams.set("countrycodes", opts.countryCode);
+    }
 
     try {
       const res = await fetch(url.toString(), {
@@ -64,59 +167,195 @@ async function geocodeNominatim(query: string): Promise<GeocodeResult | null> {
         },
         cache: "no-store",
       });
-      if (!res.ok) return null;
-      const data: Array<{
+      if (res.status === 429) {
+        await new Promise((r) => setTimeout(r, 3000));
+        const retry = await fetch(url.toString(), {
+          headers: {
+            "User-Agent": USER_AGENT,
+            "Accept-Language": "it,en;q=0.8",
+          },
+          cache: "no-store",
+        });
+        if (!retry.ok) return [];
+        const data = (await retry.json()) as Array<{
+          lat: string;
+          lon: string;
+          display_name: string;
+          class?: string;
+          type?: string;
+          importance?: number;
+        }>;
+        return parseNominatimHits(Array.isArray(data) ? data : []);
+      }
+      if (!res.ok) return [];
+      const data = (await res.json()) as Array<{
         lat: string;
         lon: string;
         display_name: string;
-      }> = await res.json();
-      const first = data[0];
-      if (!first) return null;
-      const lat = Number.parseFloat(first.lat);
-      const lon = Number.parseFloat(first.lon);
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-      return { lat, lon, displayName: first.display_name };
+        class?: string;
+        type?: string;
+        importance?: number;
+      }>;
+      return parseNominatimHits(Array.isArray(data) ? data : []);
     } catch {
-      return null;
+      return [];
     }
   });
 }
 
-/** Resolve one query; uses cache, then Nominatim. */
-async function geocodeOne(query: string): Promise<GeocodeResult | null> {
+async function getDestinationAnchor(destination?: string): Promise<LatLon | null> {
+  const dest = destination?.trim();
+  if (!dest) return null;
+  const key = normalize(dest);
+  if (anchorCache.has(key)) return anchorCache.get(key) ?? null;
+
+  const countryCode = countryCodeFromDestination(dest);
+  const hits = await fetchNominatimHits(dest, { limit: 3, countryCode });
+  const best = pickBestNominatimHit(hits, dest, null);
+  const anchor = best ? { lat: best.lat, lon: best.lon } : null;
+  anchorCache.set(key, anchor);
+  return anchor;
+}
+
+async function geocodeWithContext(
+  location: string,
+  destination?: string,
+): Promise<GeocodeResult | null> {
+  const anchor = await getDestinationAnchor(destination);
+  const countryCode = countryCodeFromDestination(destination);
+  const primaryKey = normalize(buildMapsQuery(location, destination));
+  const queries = buildGeocodeFallbackQueries(location, destination);
+
+  for (const query of queries.slice(0, 4)) {
+    const key = normalize(query);
+    if (!key) continue;
+
+    const cached = cache.get(key);
+    if (cached) return cached;
+
+    let hits = await fetchNominatimHits(query, { limit: 8, countryCode });
+    if (hits.length === 0 && countryCode) {
+      hits = await fetchNominatimHits(query, { limit: 8 });
+    }
+    const best = pickBestNominatimHit(hits, query, anchor);
+    if (!best) continue;
+
+    const result = {
+      lat: best.lat,
+      lon: best.lon,
+      displayName: best.displayName,
+    };
+    cacheSet(key, result);
+    if (primaryKey && primaryKey !== key) cacheSet(primaryKey, result);
+    return result;
+  }
+
+  return null;
+}
+
+async function geocodeOne(query: string, destination?: string): Promise<GeocodeResult | null> {
+  if (destination) {
+    return geocodeWithContext(query, destination);
+  }
   const key = normalize(query);
   if (!key) return null;
   if (cache.has(key)) return cache.get(key) ?? null;
 
-  const result = await geocodeNominatim(query);
-
-  cache.set(key, result);
+  const hits = await fetchNominatimHits(query, { limit: 8 });
+  const best = pickBestNominatimHit(hits, query, null);
+  const result = best
+    ? { lat: best.lat, lon: best.lon, displayName: best.displayName }
+    : null;
+  if (result) cacheSet(key, result);
   return result;
 }
 
-async function geocodeMany(queries: string[]): Promise<(GeocodeResult | null)[]> {
-  const normalized = queries.map((q) => normalize(q));
-  const results: (GeocodeResult | null)[] = new Array(queries.length).fill(
-    null,
-  );
-  const pending: Array<{ index: number; query: string }> = [];
+type GeocodeItem = { location: string; destination?: string };
 
-  for (let i = 0; i < queries.length; i++) {
-    const key = normalized[i];
+async function geocodeMany(items: GeocodeItem[]): Promise<(GeocodeResult | null)[]> {
+  const results: (GeocodeResult | null)[] = new Array(items.length).fill(null);
+  const pending: Array<{ index: number; item: GeocodeItem; query: string }> = [];
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    const query = buildMapsQuery(item.location, item.destination);
+    const key = normalize(query);
     if (!key) continue;
     if (cache.has(key)) {
-      results[i] = cache.get(key) ?? null;
-      continue;
+      const hit = cache.get(key);
+      if (hit) {
+        results[i] = hit;
+        continue;
+      }
     }
-    pending.push({ index: i, query: queries[i].trim() });
+    pending.push({ index: i, item, query });
   }
 
   if (pending.length === 0) return results;
 
-  // Nominatim only, serial (rate-limited via the outbound queue).
-  for (const { index, query } of pending) {
-    results[index] = await geocodeOne(query);
+  const uniqueDestinations = [
+    ...new Set(
+      pending
+        .map(({ item }) => item.destination?.trim())
+        .filter((dest): dest is string => Boolean(dest)),
+    ),
+  ];
+  await Promise.all(uniqueDestinations.map((dest) => getDestinationAnchor(dest)));
+
+  for (const { index, item } of pending) {
+    results[index] = await geocodeWithContext(item.location, item.destination);
   }
+
+  return results;
+}
+
+/** Resolve many items but hit Nominatim once per unique location string. */
+async function geocodeManyDeduped(
+  items: GeocodeItem[],
+): Promise<(GeocodeResult | null)[]> {
+  const results: (GeocodeResult | null)[] = new Array(items.length).fill(null);
+  const groups = new Map<string, number[]>();
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    const query = buildMapsQuery(item.location, item.destination);
+    const key = normalize(query);
+    if (!key) continue;
+
+    const cached = cache.get(key);
+    if (cached) {
+      results[i] = cached;
+      continue;
+    }
+
+    const list = groups.get(key) ?? [];
+    list.push(i);
+    groups.set(key, list);
+  }
+
+  if (groups.size === 0) return results;
+
+  const uniqueDestinations = [
+    ...new Set(
+      [...groups.values()]
+        .flat()
+        .map((index) => items[index]?.destination?.trim())
+        .filter((dest): dest is string => Boolean(dest)),
+    ),
+  ];
+  await Promise.all(uniqueDestinations.map((dest) => getDestinationAnchor(dest)));
+
+  for (const indices of groups.values()) {
+    const sample = items[indices[0]!]!;
+    const resolved = await geocodeWithContext(
+      sample.location,
+      sample.destination,
+    );
+    for (const index of indices) {
+      results[index] = resolved;
+    }
+  }
+
   return results;
 }
 
@@ -126,21 +365,27 @@ const CACHE_HEADERS = {
 };
 
 export async function GET(req: Request) {
+  loadDiskCache();
   const { searchParams } = new URL(req.url);
-  const q = searchParams.get("q")?.trim();
-  if (!q) {
+  const location =
+    searchParams.get("location")?.trim() || searchParams.get("q")?.trim();
+  const dest = searchParams.get("dest")?.trim() || undefined;
+  if (!location) {
     return NextResponse.json(
-      { error: "Parametro richiesto: q." },
+      { error: "Parametro richiesto: location (o q)." },
       { status: 400 },
     );
   }
 
-  const result = await geocodeOne(q);
+  const result = dest
+    ? await geocodeWithContext(location, dest)
+    : await geocodeOne(location);
   return NextResponse.json({ result }, { headers: CACHE_HEADERS });
 }
 
 export async function POST(req: Request) {
-  let body: { queries?: unknown };
+  loadDiskCache();
+  let body: { queries?: unknown; items?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -150,10 +395,52 @@ export async function POST(req: Request) {
     );
   }
 
+  if (Array.isArray(body.items) && body.items.length > 0) {
+    if (body.items.length > 50) {
+      return NextResponse.json(
+        { error: "Massimo 50 query per richiesta." },
+        { status: 400 },
+      );
+    }
+    const items: GeocodeItem[] = body.items
+      .map((raw) => {
+        const row = raw as { location?: unknown; destination?: unknown };
+        return {
+          location: String(row.location ?? "").trim(),
+          destination: row.destination
+            ? String(row.destination).trim()
+            : undefined,
+        };
+      })
+      .filter((item) => item.location.length > 0);
+
+    const results = await geocodeManyDeduped(items);
+    if (process.env.NODE_ENV !== "production") {
+      const resolved = results.filter(Boolean).length;
+      try {
+        const { appendFileSync } = await import("node:fs");
+        const { join } = await import("node:path");
+        appendFileSync(
+          join(process.cwd(), ".cursor/debug-4dd1f4.log"),
+          `${JSON.stringify({
+            sessionId: "4dd1f4",
+            location: "geocode/route.ts:POST",
+            message: "batch geocode complete",
+            data: { itemCount: items.length, resolved, nulls: items.length - resolved },
+            timestamp: Date.now(),
+          })}\n`,
+        );
+      } catch {
+        // ignore
+      }
+    }
+    return NextResponse.json({ results }, { headers: CACHE_HEADERS });
+  }
+
   const raw = body.queries;
   if (!Array.isArray(raw) || raw.length === 0) {
     return NextResponse.json(
-      { error: "Parametro richiesto: queries (array non vuoto)." },
+      { error: "Parametro richiesto: items o queries." },
       { status: 400 },
     );
   }
@@ -164,7 +451,10 @@ export async function POST(req: Request) {
     );
   }
 
-  const queries = raw.map((q) => String(q).trim()).filter(Boolean);
-  const results = await geocodeMany(queries);
+  const items: GeocodeItem[] = raw
+    .map((q) => String(q).trim())
+    .filter(Boolean)
+    .map((query) => ({ location: query }));
+  const results = await geocodeMany(items);
   return NextResponse.json({ results }, { headers: CACHE_HEADERS });
 }

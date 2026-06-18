@@ -1,5 +1,6 @@
 import type { PlaceGeo } from "../types";
 import { buildMapsQuery, buildMapsUrl } from "./maps";
+import { geoQueryKey } from "./trip-map-geo";
 import { isRestaurant } from "./restaurant";
 
 /**
@@ -124,14 +125,6 @@ async function fetchJson(
   } finally {
     clearTimeout(timer);
   }
-}
-
-/** Normalised key matching the client's `geoQueryKey` (lib/trip-map-geo). */
-function geoQueryKey(location: string, destination?: string): string {
-  return buildMapsQuery(location, destination)
-    .trim()
-    .replace(/\s+/g, " ")
-    .toLowerCase();
 }
 
 async function geocodeNominatim(query: string): Promise<NominatimHit | null> {

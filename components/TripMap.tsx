@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import {
   Map as MapGL,
@@ -26,9 +26,12 @@ import {
 import {
   hasTripGeoChanges,
   hydrateActivityPointsFromTrip,
+  mapCacheCoversTrip,
   mapPointsFromTrip,
   mergeGeoIntoTrip,
-  resolveTripMapPoints,
+  mergeMapPointsForDisplay,
+  subscribeTripMapResolve,
+  tripGeoFingerprint,
 } from "../lib/trip-map-geo";
 
 /**
@@ -204,6 +207,33 @@ function HomeMarkerPin({ color }: { color: string }) {
   );
 }
 
+function sameActivityPoints(
+  a: CachedActivityPoint[],
+  b: CachedActivityPoint[],
+): boolean {
+  if (a.length !== b.length) return false;
+  return a.every(
+    (p, i) =>
+      p.activityId === b[i].activityId &&
+      p.dayIdx === b[i].dayIdx &&
+      p.point.lat === b[i].point.lat &&
+      p.point.lon === b[i].point.lon,
+  );
+}
+
+function sameAccommodationPoints(
+  a: CachedAccommodationPoint[],
+  b: CachedAccommodationPoint[],
+): boolean {
+  if (a.length !== b.length) return false;
+  return a.every(
+    (p, i) =>
+      p.id === b[i].id &&
+      p.point.lat === b[i].point.lat &&
+      p.point.lon === b[i].point.lon,
+  );
+}
+
 function persistMapResult(
   trip: Trip,
   cacheKey: string,
@@ -212,12 +242,18 @@ function persistMapResult(
     accommodations: CachedAccommodationPoint[];
   },
   onTripGeoSaved?: (trip: Trip) => void,
+  geoPersistedRef?: { current: string | null },
 ) {
   setTripMapCache(cacheKey, result);
-  if (onTripGeoSaved) {
-    const updated = mergeGeoIntoTrip(trip, result);
-    if (hasTripGeoChanges(trip, updated)) onTripGeoSaved(updated);
-  }
+  if (!onTripGeoSaved) return;
+
+  const updated = mergeGeoIntoTrip(trip, result);
+  if (!hasTripGeoChanges(trip, updated)) return;
+
+  const persistKey = `${cacheKey}::${tripGeoFingerprint(updated)}`;
+  if (geoPersistedRef?.current === persistKey) return;
+  if (geoPersistedRef) geoPersistedRef.current = persistKey;
+  onTripGeoSaved(updated);
 }
 
 function FitMapBounds({
@@ -514,6 +550,9 @@ const TripMap = ({
   >([]);
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const [infoPoint, setInfoPoint] = useState<MapPoint | null>(null);
+  const geoPersistedRef = useRef<string | null>(null);
+  const tripRef = useRef(trip);
+  tripRef.current = trip;
 
   const totalActivities = useMemo(
     () => trip.days.reduce((acc, d) => acc + d.activities.length, 0),
@@ -521,6 +560,10 @@ const TripMap = ({
   );
 
   const cacheKey = useMemo(() => buildTripMapCacheKey(trip), [trip]);
+
+  useEffect(() => {
+    geoPersistedRef.current = null;
+  }, [cacheKey]);
 
   const applyResult = (
     result: {
@@ -530,46 +573,85 @@ const TripMap = ({
     persist = true,
   ) => {
     const hydrated = hydrateActivityPointsFromTrip(trip, result.activities);
-    setActivities(hydrated);
-    setAccommodationPoints(result.accommodations);
+    setActivities((prev) =>
+      sameActivityPoints(prev, hydrated) ? prev : hydrated,
+    );
+    setAccommodationPoints((prev) =>
+      sameAccommodationPoints(prev, result.accommodations)
+        ? prev
+        : result.accommodations,
+    );
     if (persist) {
-      persistMapResult(trip, cacheKey, { activities: hydrated, accommodations: result.accommodations }, onTripGeoSaved);
+      persistMapResult(
+        trip,
+        cacheKey,
+        { activities: hydrated, accommodations: result.accommodations },
+        onTripGeoSaved,
+        geoPersistedRef,
+      );
     }
   };
 
   // Restore markers from trip JSON or browser cache when data changes.
   useEffect(() => {
-    const fromTrip = mapPointsFromTrip(trip);
-    if (fromTrip.complete) {
-      setActivities(fromTrip.activities);
-      setAccommodationPoints(fromTrip.accommodations);
-      return;
-    }
     const cached = getTripMapCache(cacheKey);
-    if (cached) {
-      setActivities(hydrateActivityPointsFromTrip(trip, cached.activities));
-      setAccommodationPoints(cached.accommodations);
-    } else {
-      setActivities([]);
-      setAccommodationPoints([]);
-    }
-  }, [cacheKey, trip]);
+    const display = mergeMapPointsForDisplay(trip, cached);
+    let source: "trip" | "cache" | "merged" | "empty";
+    if (display.complete) source = "trip";
+    else if (!cached) source = "empty";
+    else if (cached.activities.length + cached.accommodations.length === 0)
+      source = "empty";
+    else if (
+      display.activities.length === cached.activities.length &&
+      display.accommodations.length === cached.accommodations.length
+    )
+      source = "cache";
+    else source = "merged";
+
+    // #region agent log
+    fetch("/api/debug-log", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId: "4dd1f4",
+        hypothesisId: "H1-H3",
+        location: "TripMap.tsx:restore-effect",
+        message: "restore markers effect",
+        data: {
+          source,
+          displayComplete: display.complete,
+          activityCount: display.activities.length,
+          accommodationCount: display.accommodations.length,
+          totalActivities,
+          cacheCovers: cached ? mapCacheCoversTrip(trip, cached) : false,
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
+
+    setActivities((prev) =>
+      sameActivityPoints(prev, display.activities) ? prev : display.activities,
+    );
+    setAccommodationPoints((prev) =>
+      sameAccommodationPoints(prev, display.accommodations)
+        ? prev
+        : display.accommodations,
+    );
+  }, [cacheKey, trip, totalActivities]);
 
   useEffect(() => {
-    if (!expanded) return;
-    let cancelled = false;
+    const tripSnapshot = tripRef.current;
 
-    const fromTrip = mapPointsFromTrip(trip);
+    const fromTrip = mapPointsFromTrip(tripSnapshot);
     if (fromTrip.complete) {
-      setActivities(fromTrip.activities);
-      setAccommodationPoints(fromTrip.accommodations);
       setLoading(false);
       setProgress(null);
       return;
     }
 
     const cached = getTripMapCache(cacheKey);
-    if (cached) {
+    if (cached && mapCacheCoversTrip(tripSnapshot, cached)) {
       applyResult(cached);
       setLoading(false);
       setProgress(null);
@@ -578,26 +660,108 @@ const TripMap = ({
 
     setLoading(true);
     setProgress({ done: 0, total: 0 });
-    resolveTripMapPoints(trip, (done, total) => {
-      if (!cancelled) setProgress({ done, total });
-    })
-      .then(({ activities: acts, accommodations, updatedTrip }) => {
-        if (cancelled) return;
-        const hydrated = hydrateActivityPointsFromTrip(trip, acts);
-        setActivities(hydrated);
-        setAccommodationPoints(accommodations);
-        setTripMapCache(cacheKey, { activities: hydrated, accommodations });
-        if (onTripGeoSaved && hasTripGeoChanges(trip, updatedTrip)) {
-          onTripGeoSaved(updatedTrip);
+
+    // #region agent log
+    fetch("/api/debug-log", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId: "4dd1f4",
+        hypothesisId: "H3-H5",
+        location: "TripMap.tsx:resolve-geocode",
+        message: "starting geocode (mount or cache miss)",
+        data: {
+          totalActivities,
+          partialCacheActivities: cached?.activities.length ?? 0,
+          cacheCovers: cached ? mapCacheCoversTrip(tripSnapshot, cached) : false,
+          expanded,
+          cacheKey,
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
+
+    const unsubscribe = subscribeTripMapResolve(cacheKey, tripSnapshot, {
+      onProgress: (done, total) => {
+        setProgress({ done, total });
+      },
+      onPartial: (partial) => {
+        const hydrated = hydrateActivityPointsFromTrip(
+          tripRef.current,
+          partial.activities,
+        );
+        setActivities((prev) =>
+          sameActivityPoints(prev, hydrated) ? prev : hydrated,
+        );
+        setAccommodationPoints((prev) =>
+          sameAccommodationPoints(prev, partial.accommodations)
+            ? prev
+            : partial.accommodations,
+        );
+      },
+      onDone: ({ activities: acts, accommodations, updatedTrip }) => {
+        const hydrated = hydrateActivityPointsFromTrip(tripRef.current, acts);
+        setActivities((prev) =>
+          sameActivityPoints(prev, hydrated) ? prev : hydrated,
+        );
+        setAccommodationPoints((prev) =>
+          sameAccommodationPoints(prev, accommodations)
+            ? prev
+            : accommodations,
+        );
+        setLoading(false);
+        if (buildTripMapCacheKey(tripRef.current) === cacheKey) {
+          setTripMapCache(cacheKey, { activities: hydrated, accommodations });
+          persistMapResult(
+            tripRef.current,
+            cacheKey,
+            { activities: hydrated, accommodations },
+            onTripGeoSaved,
+            geoPersistedRef,
+          );
         }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [expanded, cacheKey, trip, onTripGeoSaved]);
+        // #region agent log
+        fetch("/api/debug-log", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionId: "4dd1f4",
+            hypothesisId: "H3-H5",
+            location: "TripMap.tsx:geocode-done",
+            message: "geocode finished",
+            data: {
+              resolvedActivities: hydrated.length,
+              totalActivities,
+              geoChanged: hasTripGeoChanges(tripRef.current, updatedTrip),
+              cacheKey,
+            },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+        // #endregion
+      },
+      onError: () => {
+        setLoading(false);
+        // #region agent log
+        fetch("/api/debug-log", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionId: "4dd1f4",
+            hypothesisId: "H3-H5",
+            location: "TripMap.tsx:geocode-error",
+            message: "geocode promise rejected",
+            data: { cacheKey },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+        // #endregion
+      },
+    });
+
+    return unsubscribe;
+  }, [cacheKey, onTripGeoSaved, totalActivities]);
 
   const resolvedCount = activities.length;
   const missing =
@@ -765,10 +929,16 @@ const TripMap = ({
               {t("title")}
             </h4>
             <p className="text-xs text-white/50">
-              {tCommon("activitiesCount", { count: totalActivities })}
-              {trip.accommodations?.length
-                ? ` · ${t("accommodationsCount", { count: trip.accommodations.length })}`
-                : ""}
+              {loading && progress
+                ? t("loadingWithProgress", {
+                    done: progress.done,
+                    total: progress.total,
+                  })
+                : `${tCommon("activitiesCount", { count: totalActivities })}${
+                    trip.accommodations?.length
+                      ? ` · ${t("accommodationsCount", { count: trip.accommodations.length })}`
+                      : ""
+                  }${!loading && activities.length > 0 ? ` · ${t("localized", { resolved: activities.length, total: totalActivities })}` : ""}`}
               {" · "}OpenStreetMap
             </p>
           </div>
