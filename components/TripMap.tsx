@@ -396,7 +396,7 @@ function TripMapView({
 
   useEffect(() => {
     // #region agent log
-    fetch("http://127.0.0.1:7872/ingest/266cf421-78fa-40dc-aeaf-b1a54776429d", {
+    fetch("/api/debug-89ffaa", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "89ffaa" },
       body: JSON.stringify({
@@ -431,7 +431,7 @@ function TripMapView({
       reuseMaps
       onClick={(_e: MapLayerMouseEvent) => {
         // #region agent log
-        fetch("http://127.0.0.1:7872/ingest/266cf421-78fa-40dc-aeaf-b1a54776429d", {
+        fetch("/api/debug-89ffaa", {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "89ffaa" },
           body: JSON.stringify({
@@ -475,7 +475,7 @@ function TripMapView({
             onClick={(e) => {
               e.originalEvent.stopPropagation();
               // #region agent log
-              fetch("http://127.0.0.1:7872/ingest/266cf421-78fa-40dc-aeaf-b1a54776429d", {
+              fetch("/api/debug-89ffaa", {
                 method: "POST",
                 headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "89ffaa" },
                 body: JSON.stringify({
@@ -777,7 +777,7 @@ const TripMap = ({
     setExpanded(true);
     const t = window.setTimeout(() => {
       // #region agent log
-      fetch("http://127.0.0.1:7872/ingest/266cf421-78fa-40dc-aeaf-b1a54776429d", {
+      fetch("/api/debug-89ffaa", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "89ffaa" },
         body: JSON.stringify({
@@ -809,7 +809,7 @@ const TripMap = ({
         const section = document.getElementById("trip-map-section");
         const rect = section?.getBoundingClientRect();
         // #region agent log
-        fetch("http://127.0.0.1:7872/ingest/266cf421-78fa-40dc-aeaf-b1a54776429d", {
+        fetch("/api/debug-89ffaa", {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "89ffaa" },
           body: JSON.stringify({
@@ -885,7 +885,7 @@ const TripMap = ({
           setExpanded((v) => {
             const next = !v;
             // #region agent log
-            fetch("http://127.0.0.1:7872/ingest/266cf421-78fa-40dc-aeaf-b1a54776429d", {
+            fetch("/api/debug-89ffaa", {
               method: "POST",
               headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "89ffaa" },
               body: JSON.stringify({

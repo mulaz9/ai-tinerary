@@ -109,7 +109,7 @@ export function useSpeechRecognition({
 
     rec.onerror = (event: SpeechRecognitionErrorEvent) => {
       // #region agent log
-      fetch("http://127.0.0.1:7872/ingest/266cf421-78fa-40dc-aeaf-b1a54776429d", {
+      fetch("/api/debug-89ffaa", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "89ffaa" },
         body: JSON.stringify({
@@ -128,6 +128,12 @@ export function useSpeechRecognition({
         }),
       }).catch(() => {});
       // #endregion
+      // iOS Safari fires "aborted" on programmatic stop() (e.g. our silence
+      // timer). It's not a real failure — treat it as a clean end.
+      if (event.error === "aborted") {
+        stop();
+        return;
+      }
       setErrorCode(event.error);
       if (event.error === "not-allowed" || event.error === "service-not-allowed") {
         setStatus("error");
@@ -149,7 +155,7 @@ export function useSpeechRecognition({
     try {
       rec.start();
       // #region agent log
-      fetch("http://127.0.0.1:7872/ingest/266cf421-78fa-40dc-aeaf-b1a54776429d", {
+      fetch("/api/debug-89ffaa", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "89ffaa" },
         body: JSON.stringify({
@@ -165,7 +171,7 @@ export function useSpeechRecognition({
       setStatus("listening");
     } catch (err) {
       // #region agent log
-      fetch("http://127.0.0.1:7872/ingest/266cf421-78fa-40dc-aeaf-b1a54776429d", {
+      fetch("/api/debug-89ffaa", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "89ffaa" },
         body: JSON.stringify({

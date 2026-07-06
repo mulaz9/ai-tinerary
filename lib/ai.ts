@@ -1513,15 +1513,34 @@ export async function translateTrip(
 
 // ───────────────────────── Trip form voice parsing ─────────────────────────
 
+// All fields required: Gemini structured output omits optional properties,
+// which silently dropped arrival/departure even when dates were spoken.
 const parseTripFormSchema = {
   type: "object",
   properties: {
-    destination: { type: "string" },
-    arrival: { type: "string" },
-    departure: { type: "string" },
-    accommodations: { type: "array", items: { type: "string" } },
-    notes: { type: "string" },
+    destination: {
+      type: "string",
+      description: 'Città/area del viaggio, "" se assente',
+    },
+    arrival: {
+      type: "string",
+      description: 'Data-ora arrivo formato "YYYY-MM-DDTHH:MM", "" se assente',
+    },
+    departure: {
+      type: "string",
+      description: 'Data-ora partenza formato "YYYY-MM-DDTHH:MM", "" se assente',
+    },
+    accommodations: {
+      type: "array",
+      items: { type: "string" },
+      description: "Nomi/indirizzi alloggi menzionati, [] se nessuno",
+    },
+    notes: {
+      type: "string",
+      description: 'Preferenze/stile di viaggio, "" se assenti',
+    },
   },
+  required: ["destination", "arrival", "departure", "accommodations", "notes"],
 } as const;
 
 interface RawParsedTripForm {
@@ -1683,6 +1702,24 @@ export async function parseTripFormFromSpeech(
     const { id: provider, getText } = attempts[i];
     try {
       const text = await getText();
+      // #region agent log
+      fetch("http://127.0.0.1:7872/ingest/266cf421-78fa-40dc-aeaf-b1a54776429d", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "89ffaa" },
+        body: JSON.stringify({
+          sessionId: "89ffaa",
+          hypothesisId: "HD3",
+          location: "ai.ts:parseTripFormFromSpeech",
+          message: "raw model response for trip form parse",
+          data: {
+            provider,
+            referenceDate: input.referenceDate ?? null,
+            rawText: text.slice(0, 500),
+          },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
       const raw = JSON.parse(extractJsonObject(text)) as RawParsedTripForm;
       return { form: normalizeParsedTripForm(raw), provider };
     } catch (err) {

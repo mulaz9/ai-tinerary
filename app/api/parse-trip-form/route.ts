@@ -27,12 +27,41 @@ export async function POST(req: Request) {
     );
   }
 
+  // #region agent log
+  fetch("http://127.0.0.1:7872/ingest/266cf421-78fa-40dc-aeaf-b1a54776429d", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "89ffaa" },
+    body: JSON.stringify({
+      sessionId: "89ffaa",
+      hypothesisId: "HD1-HD2",
+      location: "parse-trip-form/route.ts:input",
+      message: "parse-trip-form request received",
+      data: { transcript, language, referenceDate },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
+
   try {
     const { form, provider } = await parseTripFormFromSpeech({
       transcript,
       language,
       referenceDate,
     });
+    // #region agent log
+    fetch("http://127.0.0.1:7872/ingest/266cf421-78fa-40dc-aeaf-b1a54776429d", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "89ffaa" },
+      body: JSON.stringify({
+        sessionId: "89ffaa",
+        hypothesisId: "HD4",
+        location: "parse-trip-form/route.ts:output",
+        message: "parse-trip-form normalized result",
+        data: { form, provider },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
     return NextResponse.json({
       form,
       provider,

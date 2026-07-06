@@ -7,6 +7,7 @@ import { addUserTrip, MAX_USER_TRIPS, useAllTrips } from "../lib/trips-store";
 import VoiceTripFormAssist, {
   type VoiceTripFormFields,
 } from "./VoiceTripFormAssist";
+import DateRangeCalendar from "./DateRangeCalendar";
 
 interface NewTripDialogProps {
   open: boolean;
@@ -33,6 +34,15 @@ function toDateTimeLocal(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
     d.getHours(),
   )}:${pad(d.getMinutes())}`;
+}
+
+/** "2026-07-08" → e.g. "mer 8 lug" in the active locale (no TZ drift). */
+function formatDayLabel(dateKey: string, locale: string): string {
+  return new Intl.DateTimeFormat(locale, {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  }).format(new Date(`${dateKey}T12:00`));
 }
 
 const NewTripDialog = ({ open, onClose, onCreated }: NewTripDialogProps) => {
@@ -74,6 +84,24 @@ const NewTripDialog = ({ open, onClose, onCreated }: NewTripDialogProps) => {
     );
 
   const handleVoiceApply = (fields: VoiceTripFormFields) => {
+    // #region agent log
+    fetch("/api/debug-89ffaa", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId: "89ffaa",
+        hypothesisId: "HD5",
+        location: "NewTripDialog.tsx:handleVoiceApply",
+        message: "voice fields applied to form",
+        data: {
+          fields,
+          currentArrival: arrival,
+          currentDeparture: departure,
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
     if (fields.destination) setDestination(fields.destination);
     if (fields.arrival) setArrival(fields.arrival);
     if (fields.departure) setDeparture(fields.departure);
@@ -170,6 +198,34 @@ const NewTripDialog = ({ open, onClose, onCreated }: NewTripDialogProps) => {
     };
 
     requestAnimationFrame(() => measureLayout("open"));
+
+    // #region agent log
+    requestAnimationFrame(() => {
+      const form = formRef.current;
+      const overlay = overlayRef.current;
+      const vh = window.visualViewport?.height ?? window.innerHeight;
+      fetch("/api/debug-89ffaa", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId: "89ffaa",
+          hypothesisId: "H8",
+          location: "NewTripDialog.tsx:open-layout",
+          message: "dialog layout measured",
+          data: {
+            formHeight: form?.offsetHeight ?? null,
+            viewportHeight: vh,
+            overlayCanScroll: overlay
+              ? overlay.scrollHeight > overlay.clientHeight
+              : null,
+            formTop: form?.getBoundingClientRect().top ?? null,
+            overflows: form ? form.offsetHeight > vh - 32 : null,
+          },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+    });
+    // #endregion
 
     const contentEl = contentRef.current;
     const overlayEl = overlayRef.current;
@@ -501,30 +557,65 @@ const NewTripDialog = ({ open, onClose, onCreated }: NewTripDialogProps) => {
             </p>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <label className="block text-[11px] font-medium uppercase tracking-wide text-white/50">
-                {t("arrival")}
-              </label>
-              <input
-                type="datetime-local"
-                value={arrival}
-                onChange={(e) => setArrival(e.target.value)}
-                className="mt-1.5 w-full rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5 text-sm text-white outline-none transition focus:border-emerald-400/40 focus:bg-white/[0.04]"
+          <div>
+            <label className="block text-[11px] font-medium uppercase tracking-wide text-white/50">
+              {t("dates")}
+            </label>
+            <p className="mt-1 text-[11px] text-white/35">{t("datesHint")}</p>
+            <div className="mt-1.5">
+              <DateRangeCalendar
+                startDate={arrival ? arrival.slice(0, 10) : null}
+                endDate={departure ? departure.slice(0, 10) : null}
+                onSelect={(start, end) => {
+                  setArrival(`${start}T${arrival.slice(11, 16) || "10:00"}`);
+                  setDeparture(
+                    end ? `${end}T${departure.slice(11, 16) || "18:00"}` : "",
+                  );
+                }}
                 disabled={loading}
               />
             </div>
-            <div>
-              <label className="block text-[11px] font-medium uppercase tracking-wide text-white/50">
-                {t("departure")}
-              </label>
-              <input
-                type="datetime-local"
-                value={departure}
-                onChange={(e) => setDeparture(e.target.value)}
-                className="mt-1.5 w-full rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5 text-sm text-white outline-none transition focus:border-emerald-400/40 focus:bg-white/[0.04]"
-                disabled={loading}
-              />
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="block text-[11px] font-medium uppercase tracking-wide text-white/50">
+                  {t("arrival")}
+                  {arrival ? (
+                    <span className="ml-1.5 normal-case tracking-normal text-emerald-300/80">
+                      {formatDayLabel(arrival.slice(0, 10), locale)}
+                    </span>
+                  ) : null}
+                </label>
+                <input
+                  type="time"
+                  value={arrival.slice(11, 16)}
+                  onChange={(e) =>
+                    arrival &&
+                    setArrival(`${arrival.slice(0, 10)}T${e.target.value}`)
+                  }
+                  className="mt-1.5 w-full rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5 text-sm text-white outline-none transition focus:border-emerald-400/40 focus:bg-white/[0.04]"
+                  disabled={loading || !arrival}
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium uppercase tracking-wide text-white/50">
+                  {t("departure")}
+                  {departure ? (
+                    <span className="ml-1.5 normal-case tracking-normal text-emerald-300/80">
+                      {formatDayLabel(departure.slice(0, 10), locale)}
+                    </span>
+                  ) : null}
+                </label>
+                <input
+                  type="time"
+                  value={departure.slice(11, 16)}
+                  onChange={(e) =>
+                    departure &&
+                    setDeparture(`${departure.slice(0, 10)}T${e.target.value}`)
+                  }
+                  className="mt-1.5 w-full rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5 text-sm text-white outline-none transition focus:border-emerald-400/40 focus:bg-white/[0.04]"
+                  disabled={loading || !departure}
+                />
+              </div>
             </div>
           </div>
 

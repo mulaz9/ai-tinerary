@@ -54,6 +54,7 @@ function LoginInner() {
   const [resendCooldown, setResendCooldown] = useState(0);
 
   const [localTripCount, setLocalTripCount] = useState<number | null>(null);
+  const [showSigninResetHint, setShowSigninResetHint] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -130,6 +131,7 @@ function LoginInner() {
     setInfo(null);
     setWarning(null);
     setPendingConfirmEmail(null);
+    setShowSigninResetHint(false);
   }
 
   function switchToSignIn() {
@@ -284,6 +286,37 @@ function LoginInner() {
       }
       setPassword("");
       setConfirmPassword("");
+    } catch (err) {
+      console.error(err);
+      setError(translateAuthError(err, t));
+      if (
+        tab === "signin" &&
+        err instanceof Error &&
+        err.message.toLowerCase().includes("invalid login credentials")
+      ) {
+        setShowSigninResetHint(true);
+      }
+    } finally {
+      setEmailLoading(false);
+    }
+  }
+
+  async function sendSetPasswordEmail() {
+    const targetEmail = email.trim();
+    if (!targetEmail || emailLoading) return;
+    setEmailLoading(true);
+    try {
+      const supabase = createSupabaseBrowserClient();
+      if (!supabase) {
+        throw new Error(t("errorSupabase"));
+      }
+      const redirectTo = buildAuthCallbackUrl("/auth/update-password");
+      const { error } = await supabase.auth.resetPasswordForEmail(targetEmail, {
+        redirectTo,
+      });
+      if (error) throw error;
+      setWarning(null);
+      setInfo(t("resetEmailSent", { email: targetEmail }));
     } catch (err) {
       console.error(err);
       setError(translateAuthError(err, t));
@@ -543,9 +576,28 @@ function LoginInner() {
         )}
 
         {error ? (
-          <p className="mt-4 rounded-2xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-center text-xs text-red-300">
-            {error}
-          </p>
+          <div className="mt-4 space-y-2 rounded-2xl border border-red-500/20 bg-red-500/10 px-3 py-2">
+            <p className="text-center text-xs text-red-300">{error}</p>
+            {showSigninResetHint ? (
+              <>
+                <p className="text-center text-[11px] leading-relaxed text-red-200/70">
+                  {t("invalidCredentialsGoogleHint")}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const currentEmail = email;
+                    setView("forgot");
+                    setResetEmail(currentEmail);
+                    clearMessages();
+                  }}
+                  className="inline-flex w-full items-center justify-center text-xs font-semibold text-red-100 underline-offset-2 hover:underline"
+                >
+                  {t("setPasswordViaEmail")}
+                </button>
+              </>
+            ) : null}
+          </div>
         ) : null}
         {warning ? (
           <div className="mt-4 space-y-3 rounded-2xl border border-amber-500/25 bg-amber-500/10 px-3 py-3">
@@ -573,6 +625,14 @@ function LoginInner() {
                 {oauthLoading ? t("redirecting") : t("continueWithGoogle")}
               </button>
             </div>
+            <button
+              type="button"
+              onClick={sendSetPasswordEmail}
+              disabled={emailLoading}
+              className="inline-flex w-full items-center justify-center rounded-full border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-white/90 transition hover:border-white/25 hover:bg-white/10 disabled:opacity-60"
+            >
+              {emailLoading ? t("sending") : t("setPasswordViaEmail")}
+            </button>
           </div>
         ) : null}
         {info ? (
