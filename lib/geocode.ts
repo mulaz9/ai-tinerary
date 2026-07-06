@@ -1,6 +1,7 @@
 "use client";
 
 import { buildMapsQuery } from "./maps";
+import { GEO_QUERY_VERSION } from "./geo-query-version";
 
 /**
  * Client-side geocoding helper.
@@ -15,9 +16,18 @@ export interface LatLon {
   lon: number;
 }
 
-/** Only successful geocodes are cached (never `null`). */
-const STORAGE_KEY = "ai-tinerary.geocode-cache.v3";
-const LEGACY_STORAGE_KEYS = ["ai-tinerary.geocode-cache.v1"];
+/**
+ * Only successful geocodes are cached (never `null`). The storage key embeds
+ * GEO_QUERY_VERSION so bumping the ranker version invalidates stale entries.
+ */
+const STORAGE_KEY = `ai-tinerary.geocode-cache.v4.${GEO_QUERY_VERSION}`;
+const LEGACY_STORAGE_KEYS = [
+  "ai-tinerary.geocode-cache.v1",
+  "ai-tinerary.geocode-cache.v3",
+];
+
+/** Keep the persisted cache bounded (~most recent entries win). */
+const MAX_CACHE_ENTRIES = 500;
 
 let memoryCache: Map<string, LatLon> | null = null;
 const inflight = new Map<string, Promise<LatLon | null>>();
@@ -52,19 +62,14 @@ function loadCache(): Map<string, LatLon> {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (raw) {
       ingestParsedEntries(JSON.parse(raw) as Record<string, unknown>);
-      return memoryCache;
     }
+    // Old versions may hold stale coordinates — just drop them.
     for (const legacyKey of LEGACY_STORAGE_KEYS) {
-      const legacyRaw = window.localStorage.getItem(legacyKey);
-      if (!legacyRaw) continue;
-      ingestParsedEntries(JSON.parse(legacyRaw) as Record<string, unknown>);
-      persistCache();
       try {
         window.localStorage.removeItem(legacyKey);
       } catch {
         // ignore
       }
-      break;
     }
   } catch {
     // Corrupted cache — ignore and start fresh.
@@ -75,6 +80,13 @@ function loadCache(): Map<string, LatLon> {
 function persistCache() {
   if (typeof window === "undefined" || !memoryCache) return;
   try {
+    // Bound the cache: Maps iterate in insertion order, so dropping the
+    // oldest entries keeps the most recently added ones.
+    while (memoryCache.size > MAX_CACHE_ENTRIES) {
+      const oldest = memoryCache.keys().next().value;
+      if (oldest === undefined) break;
+      memoryCache.delete(oldest);
+    }
     const obj: Record<string, LatLon> = {};
     for (const [k, v] of memoryCache.entries()) obj[k] = v;
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(obj));
@@ -114,8 +126,10 @@ export async function geocode(
 
   const promise = (async (): Promise<LatLon | null> => {
     try {
-      const params = new URLSearchParams({ location });
+      const params = new URLSearchParams({ location, v: GEO_QUERY_VERSION });
       if (destination?.trim()) params.set("dest", destination.trim());
+      // `v` keys the browser HTTP cache to the ranker version, so long-lived
+      // Cache-Control headers don't serve stale coordinates after a bump.
       const res = await fetch(`/api/geocode?${params.toString()}`, {
         cache: "force-cache",
       });
@@ -152,7 +166,6 @@ export async function geocodeBatch(
   const keys = queries.map(normalize);
   const total = queries.length;
   const out: Array<LatLon | null> = new Array(total).fill(null);
-  const cache = loadCache();
   const uncachedIndices: number[] = [];
 
   for (let i = 0; i < total; i++) {

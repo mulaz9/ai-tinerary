@@ -48,13 +48,17 @@ function daysBetween(a: Date, b: Date): number {
  * Geocode a free-form location string via Open-Meteo's geocoding API.
  * Returns null when the lookup fails or the string is empty.
  */
-export async function geocodeLocation(name: string): Promise<Coords | null> {
+export async function geocodeLocation(
+  name: string,
+  lang = "en",
+): Promise<Coords | null> {
   const trimmed = name?.trim();
   if (!trimmed) return null;
 
+  const language = /^[a-z]{2}$/i.test(lang) ? lang.toLowerCase() : "en";
   const url =
     `https://geocoding-api.open-meteo.com/v1/search` +
-    `?name=${encodeURIComponent(trimmed)}&count=1&language=it&format=json`;
+    `?name=${encodeURIComponent(trimmed)}&count=1&language=${language}&format=json`;
 
   try {
     const res = await fetch(url, {

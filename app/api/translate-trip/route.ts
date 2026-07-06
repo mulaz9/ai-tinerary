@@ -1,10 +1,19 @@
 import { NextResponse } from "next/server";
 import { translateTrip, AIError, providerLabel } from "../../../lib/ai";
 import type { Trip } from "../../../types";
+import { rateLimitGuard } from "../../../lib/rate-limit";
 
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
+  const limited = rateLimitGuard(req, "translate-trip", 5, 60_000);
+  if (limited) {
+    return NextResponse.json(
+      { error: "Troppe richieste.", code: "rate_limit", retryAfterSec: limited.retryAfterSec },
+      { status: 429, headers: { "Retry-After": String(limited.retryAfterSec) } },
+    );
+  }
+
   let body: { trip?: Trip; targetLang?: string };
   try {
     body = (await req.json()) as { trip?: Trip; targetLang?: string };

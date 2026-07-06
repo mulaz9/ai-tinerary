@@ -16,7 +16,10 @@
     "serverError": "Server error ({status})",
     "daysCount": "{count, plural, one {# day} other {# days}}",
     "activitiesCount": "{count, plural, one {# activity} other {# activities}}",
-    "tripsCount": "{count, plural, one {# trip} other {# trips}}"
+    "tripsCount": "{count, plural, one {# trip} other {# trips}}",
+    "flagOf": "Flag of {code}",
+    "previousMonth": "Previous month",
+    "nextMonth": "Next month"
   },
   "aiErrors": {
     "provider": "the AI provider",
@@ -354,7 +357,8 @@
     "signInRequired": "Sign in to manage your account.",
     "signIn": "Sign in",
     "signOut": "Sign out",
-    "privacyPolicy": "Privacy policy"
+    "privacyPolicy": "Privacy policy",
+    "deleteError": "Account deletion failed. Please try again later."
   },
   "privacy": {
     "kicker": "Legal",

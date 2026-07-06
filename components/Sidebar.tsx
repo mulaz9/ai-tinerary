@@ -1,10 +1,8 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { Trip } from "../types";
 import SafeImage from "./SafeImage";
 import { useAllTrips } from "../lib/trips-store";
 import UserMenu from "./UserMenu";
@@ -12,11 +10,11 @@ import LanguageSwitcher from "./LanguageSwitcher";
 import { getCountryFromLocation } from "../lib/country-flag";
 
 const Sidebar = () => {
-  const [selectedTrip, setSelectedTrip] = useState<Trip | null>(null);
   const pathname = usePathname();
   const { trips } = useAllTrips();
   const t = useTranslations("sidebar");
   const tNav = useTranslations("nav");
+  const tCommon = useTranslations("common");
 
   return (
     <aside className="fixed inset-y-0 left-0 hidden w-80 shrink-0 overflow-y-auto border-r border-white/10 bg-[#141414]/90 p-6 backdrop-blur lg:block">
@@ -59,9 +57,8 @@ const Sidebar = () => {
               <li key={trip.id}>
                 <Link
                   href={`/trip/${trip.id}`}
-                  onClick={() => setSelectedTrip(trip)}
                   className={`block rounded-xl px-3 py-2 transition ${
-                    active || selectedTrip?.id === trip.id
+                    active
                       ? "bg-white/10 text-white ring-1 ring-white/10"
                       : "text-white/70 hover:bg-white/5 hover:text-white"
                   }`}
@@ -81,7 +78,7 @@ const Sidebar = () => {
                       {country ? (
                         <span
                           className="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-[#141414] text-[10px] leading-none ring-1 ring-white/20"
-                          aria-label={`Bandiera ${country.code}`}
+                          aria-label={tCommon("flagOf", { code: country.code })}
                           title={country.code}
                         >
                           {country.flag}

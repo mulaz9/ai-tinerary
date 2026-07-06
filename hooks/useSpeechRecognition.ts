@@ -108,26 +108,6 @@ export function useSpeechRecognition({
     };
 
     rec.onerror = (event: SpeechRecognitionErrorEvent) => {
-      // #region agent log
-      fetch("/api/debug-89ffaa", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "89ffaa" },
-        body: JSON.stringify({
-          sessionId: "89ffaa",
-          hypothesisId: "H9-H11",
-          location: "useSpeechRecognition.ts:onerror",
-          message: "speech recognition error",
-          data: {
-            error: event.error,
-            lang: rec.lang,
-            continuous: rec.continuous,
-            interimResults: rec.interimResults,
-            ua: typeof navigator !== "undefined" ? navigator.userAgent.slice(0, 120) : "",
-          },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
       // iOS Safari fires "aborted" on programmatic stop() (e.g. our silence
       // timer). It's not a real failure — treat it as a clean end.
       if (event.error === "aborted") {
@@ -154,36 +134,8 @@ export function useSpeechRecognition({
 
     try {
       rec.start();
-      // #region agent log
-      fetch("/api/debug-89ffaa", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "89ffaa" },
-        body: JSON.stringify({
-          sessionId: "89ffaa",
-          hypothesisId: "H9-H11",
-          location: "useSpeechRecognition.ts:start",
-          message: "speech recognition started",
-          data: { lang: rec.lang, continuous: rec.continuous, interimResults: rec.interimResults },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
       setStatus("listening");
-    } catch (err) {
-      // #region agent log
-      fetch("/api/debug-89ffaa", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "89ffaa" },
-        body: JSON.stringify({
-          sessionId: "89ffaa",
-          hypothesisId: "H11",
-          location: "useSpeechRecognition.ts:start-catch",
-          message: "speech recognition start threw",
-          data: { err: err instanceof Error ? err.message : String(err) },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
+    } catch {
       setStatus("error");
       setErrorCode("start-failed");
     }

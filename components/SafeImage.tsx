@@ -23,7 +23,9 @@ interface SafeImageProps {
  * if the image fails to load (broken URL, CORS issue, rate-limit …).
  */
 export default function SafeImage({ src, alt, className = "", fallbackLabel }: SafeImageProps) {
-  const [error, setError] = useState(false);
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  // Keyed on src so a new URL gets a fresh chance after a previous failure.
+  const error = failedSrc === src;
 
   // Deterministic gradient based on the alt text so the same card always
   // gets the same colour — no flickering on re-renders.
@@ -52,7 +54,7 @@ export default function SafeImage({ src, alt, className = "", fallbackLabel }: S
       alt={alt}
       className={className}
       loading="lazy"
-      onError={() => setError(true)}
+      onError={() => setFailedSrc(src)}
     />
   );
 }

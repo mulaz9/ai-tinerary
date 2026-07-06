@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import type { Accommodation, Day, Trip } from "../types";
+import { useBodyScrollLock } from "../hooks/useBodyScrollLock";
 
 interface ManageAccommodationsDialogProps {
   /**
@@ -133,6 +134,8 @@ export default function ManageAccommodationsDialog({
     onSave(nextTrip);
     onClose();
   };
+
+  useBodyScrollLock(true);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

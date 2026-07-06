@@ -14,6 +14,7 @@ import {
   type LatLon,
   type NominatimHit,
 } from "../../../lib/nominatim-rank";
+import { GEO_QUERY_VERSION } from "../../../lib/geo-query-version";
 
 /**
  * Geocoding proxy: free Nominatim / OpenStreetMap only (no API key, no billing).
@@ -48,7 +49,15 @@ const cache = new Map<string, GeocodeResult | null>();
  * once for the whole machine — survives dev-server reloads and is shared across
  * every trip that references the same place.
  */
-const CACHE_FILE = join(process.cwd(), ".cache", "geocode-cache.json");
+// GEO_QUERY_VERSION in the filename invalidates the cache on ranker changes.
+const CACHE_FILE = join(
+  process.cwd(),
+  ".cache",
+  `geocode-cache.${GEO_QUERY_VERSION}.json`,
+);
+
+/** Cap on persisted entries to keep the file from growing unbounded. */
+const MAX_DISK_ENTRIES = 5000;
 
 let cacheLoaded = false;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -77,10 +86,12 @@ function scheduleDiskSave(): void {
     saveTimer = null;
     try {
       mkdirSync(dirname(CACHE_FILE), { recursive: true });
-      const obj: Record<string, GeocodeResult> = {};
+      const entries: Array<[string, GeocodeResult]> = [];
       for (const [key, value] of cache.entries()) {
-        if (value) obj[key] = value;
+        if (value) entries.push([key, value]);
       }
+      // Maps iterate in insertion order — keep the most recent entries.
+      const obj = Object.fromEntries(entries.slice(-MAX_DISK_ENTRIES));
       writeFileSync(CACHE_FILE, JSON.stringify(obj), "utf8");
     } catch {
       // Best effort: failing to persist just means we re-geocode next time.
@@ -415,25 +426,6 @@ export async function POST(req: Request) {
       .filter((item) => item.location.length > 0);
 
     const results = await geocodeManyDeduped(items);
-    if (process.env.NODE_ENV !== "production") {
-      const resolved = results.filter(Boolean).length;
-      try {
-        const { appendFileSync } = await import("node:fs");
-        const { join } = await import("node:path");
-        appendFileSync(
-          join(process.cwd(), ".cursor/debug-4dd1f4.log"),
-          `${JSON.stringify({
-            sessionId: "4dd1f4",
-            location: "geocode/route.ts:POST",
-            message: "batch geocode complete",
-            data: { itemCount: items.length, resolved, nulls: items.length - resolved },
-            timestamp: Date.now(),
-          })}\n`,
-        );
-      } catch {
-        // ignore
-      }
-    }
     return NextResponse.json({ results }, { headers: CACHE_HEADERS });
   }
 

@@ -5,10 +5,19 @@ import {
   AIError,
   providerLabel,
 } from "../../../lib/ai";
+import { rateLimitGuard } from "../../../lib/rate-limit";
 
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
+  const limited = rateLimitGuard(req, "generate-activity", 10, 60_000);
+  if (limited) {
+    return NextResponse.json(
+      { error: "Troppe richieste.", code: "rate_limit", retryAfterSec: limited.retryAfterSec },
+      { status: 429, headers: { "Retry-After": String(limited.retryAfterSec) } },
+    );
+  }
+
   let body: Partial<GenerateActivityInput>;
   try {
     body = (await req.json()) as Partial<GenerateActivityInput>;

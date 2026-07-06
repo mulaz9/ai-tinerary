@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useLocale } from "next-intl";
+import { useEffect, useMemo, useState } from "react";
+import { useLocale, useTranslations } from "next-intl";
 
 /**
  * Single inline calendar to pick an arrival→departure date range.
@@ -31,36 +31,7 @@ export default function DateRangeCalendar({
   disabled = false,
 }: DateRangeCalendarProps) {
   const locale = useLocale();
-  const gridRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    // #region agent log
-    const el = gridRef.current;
-    if (!el) return;
-    const cs = getComputedStyle(el);
-    fetch("/api/debug-89ffaa", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sessionId: "89ffaa",
-        hypothesisId: "HC4",
-        location: "DateRangeCalendar.tsx:grid-measure",
-        message: "calendar grid computed style",
-        data: {
-          display: cs.display,
-          gridTemplateColumns: cs.gridTemplateColumns.slice(0, 120),
-          gridWidth: el.offsetWidth,
-          gridHeight: el.offsetHeight,
-          styleSheets: Array.from(document.styleSheets)
-            .map((s) => (s.href ? s.href.split("/").pop() : "inline"))
-            .slice(0, 10),
-          ua: navigator.userAgent.slice(0, 120),
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
-  }, []);
+  const tCommon = useTranslations("common");
 
   const initial = startDate ? new Date(`${startDate}T12:00`) : new Date();
   const [viewYear, setViewYear] = useState(initial.getFullYear());
@@ -96,10 +67,9 @@ export default function DateRangeCalendar({
   const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
   const firstWeekday = (new Date(viewYear, viewMonth, 1).getDay() + 6) % 7;
 
-  const todayKey = useMemo(() => {
-    const now = new Date();
-    return toKey(now.getFullYear(), now.getMonth(), now.getDate());
-  }, []);
+  // Recomputed on every render so the highlight stays correct past midnight.
+  const now = new Date();
+  const todayKey = toKey(now.getFullYear(), now.getMonth(), now.getDate());
 
   const shiftMonth = (delta: number) => {
     const d = new Date(viewYear, viewMonth + delta, 1);
@@ -132,7 +102,7 @@ export default function DateRangeCalendar({
           type="button"
           onClick={() => shiftMonth(-1)}
           disabled={disabled}
-          aria-label="←"
+          aria-label={tCommon("previousMonth")}
           className={navBtnClass}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -144,7 +114,7 @@ export default function DateRangeCalendar({
           type="button"
           onClick={() => shiftMonth(1)}
           disabled={disabled}
-          aria-label="→"
+          aria-label={tCommon("nextMonth")}
           className={navBtnClass}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -154,7 +124,6 @@ export default function DateRangeCalendar({
       </div>
 
       <div
-        ref={gridRef}
         className="text-center"
         style={{
           display: "grid",

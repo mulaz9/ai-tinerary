@@ -22,6 +22,11 @@ function buildAuthCallbackUrl(nextPath: string): string {
   return `${authRedirectOrigin()}/auth/callback?next=${encodeURIComponent(nextPath)}`;
 }
 
+/** Only allow same-origin paths (blocks "//evil.com" open redirects). */
+function sanitizeNextPath(next: string): string {
+  return next.startsWith("/") && !next.startsWith("//") ? next : "/";
+}
+
 function LoginInner() {
   const t = useTranslations("login");
   const tCommon = useTranslations("common");
@@ -107,19 +112,11 @@ function LoginInner() {
     if (!supabase) {
       throw new Error(t("errorSupabase"));
     }
-    const emailRedirectTo = buildAuthCallbackUrl(next.startsWith("/") ? next : "/");
+    const emailRedirectTo = buildAuthCallbackUrl(sanitizeNextPath(next));
     const { error } = await supabase.auth.resend({
       type: "signup",
       email: targetEmail,
       options: { emailRedirectTo },
-    });
-    logAuthDebug(`login/page.tsx:${source}`, "resend response", "H6", {
-      runId: "post-fix-v3",
-      hasError: Boolean(error),
-      errorMessage: error?.message ?? null,
-      errorStatus: error?.status ?? null,
-      emailRedirectTo,
-      authRedirectOrigin: authRedirectOrigin(),
     });
     if (error) throw error;
     startResendCooldown();
@@ -143,28 +140,6 @@ function LoginInner() {
     setPendingConfirmEmail(null);
   }
 
-  function logAuthDebug(
-    location: string,
-    message: string,
-    hypothesisId: string,
-    data: Record<string, unknown>,
-  ) {
-    // #region agent log
-    fetch("/api/debug-log", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sessionId: "4dd1f4",
-        location,
-        message,
-        data,
-        timestamp: Date.now(),
-        hypothesisId,
-      }),
-    }).catch(() => {});
-    // #endregion
-  }
-
   function switchTab(nextTab: Tab) {
     setTab(nextTab);
     setView("form");
@@ -179,7 +154,7 @@ function LoginInner() {
       if (!supabase) {
         throw new Error(t("errorSupabase"));
       }
-      const redirectTo = buildAuthCallbackUrl(next.startsWith("/") ? next : "/");
+      const redirectTo = buildAuthCallbackUrl(sanitizeNextPath(next));
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: { redirectTo },
@@ -229,36 +204,17 @@ function LoginInner() {
           password,
         });
         if (error) throw error;
-        router.push(next.startsWith("/") ? next : "/");
+        router.push(sanitizeNextPath(next));
         router.refresh();
         return;
       }
 
-      const safeNext = next.startsWith("/") ? next : "/";
+      const safeNext = sanitizeNextPath(next);
       const emailRedirectTo = buildAuthCallbackUrl(safeNext);
-      logAuthDebug("login/page.tsx:signup-start", "signUp requested", "H2-H3", {
-        origin: window.location.origin,
-        authRedirectOrigin: authRedirectOrigin(),
-        emailRedirectTo,
-        next: safeNext,
-      });
       const { data, error } = await supabase.auth.signUp({
         email: trimmedEmail,
         password,
         options: { emailRedirectTo },
-      });
-      logAuthDebug("login/page.tsx:signup-result", "signUp response", "H1-H3", {
-        hasError: Boolean(error),
-        errorMessage: error?.message ?? null,
-        errorStatus: error?.status ?? null,
-        hasSession: Boolean(data.session),
-        userId: data.user?.id ?? null,
-        emailConfirmedAt: data.user?.email_confirmed_at ?? null,
-        identitiesCount: data.user?.identities?.length ?? 0,
-        confirmationSentAt: data.user?.confirmation_sent_at ?? null,
-        origin: window.location.origin,
-        authRedirectOrigin: authRedirectOrigin(),
-        emailRedirectTo,
       });
       if (error) throw error;
 
@@ -270,15 +226,6 @@ function LoginInner() {
 
       const existingAccount = (data.user?.identities?.length ?? 0) === 0;
       if (existingAccount) {
-        logAuthDebug(
-          "login/page.tsx:signup-existing",
-          "email already registered",
-          "H1",
-          {
-            runId: "existing-account-warning",
-            emailRedirectTo,
-          },
-        );
         setWarning(t("signupExistingAccountWarning", { email: trimmedEmail }));
       } else {
         setPendingConfirmEmail(trimmedEmail);

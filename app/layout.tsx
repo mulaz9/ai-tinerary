@@ -49,27 +49,10 @@ export default async function RootLayout({
   const devSwCleanup = `
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.getRegistrations().then(function (rs) {
-        var n = rs.length;
         rs.forEach(function (r) { r.unregister(); });
         if (window.caches) {
           caches.keys().then(function (ks) { ks.forEach(function (k) { caches.delete(k); }); });
         }
-        /* #region agent log */
-        if (n > 0) {
-          fetch("/api/debug-89ffaa", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              sessionId: "89ffaa",
-              hypothesisId: "HC2",
-              location: "layout.tsx:dev-sw-cleanup",
-              message: "stale service worker unregistered in dev",
-              data: { unregistered: n, ua: navigator.userAgent.slice(0, 120) },
-              timestamp: Date.now(),
-            }),
-          }).catch(function () {});
-        }
-        /* #endregion */
       });
     }
   `;

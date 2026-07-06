@@ -16,7 +16,10 @@
     "serverError": "Erreur serveur ({status})",
     "daysCount": "{count, plural, one {# jour} other {# jours}}",
     "activitiesCount": "{count, plural, one {# activité} other {# activités}}",
-    "tripsCount": "{count, plural, one {# voyage} other {# voyages}}"
+    "tripsCount": "{count, plural, one {# voyage} other {# voyages}}",
+    "flagOf": "Drapeau {code}",
+    "previousMonth": "Mois précédent",
+    "nextMonth": "Mois suivant"
   },
   "aiErrors": {
     "provider": "le fournisseur d'IA",
@@ -354,7 +357,8 @@
     "signInRequired": "Connectez-vous pour gérer votre compte.",
     "signIn": "Se connecter",
     "signOut": "Se déconnecter",
-    "privacyPolicy": "Politique de confidentialité"
+    "privacyPolicy": "Politique de confidentialité",
+    "deleteError": "Échec de la suppression du compte. Veuillez réessayer plus tard."
   },
   "privacy": {
     "kicker": "Légal",

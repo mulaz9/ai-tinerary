@@ -3,8 +3,13 @@ import { getTranslations } from "next-intl/server";
 import DeleteAccountButton from "../../components/DeleteAccountButton";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 
-export default async function AccountPage() {
+export default async function AccountPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ deleteError?: string }>;
+}) {
   const t = await getTranslations("account");
+  const { deleteError } = await searchParams;
   const supabase = await createSupabaseServerClient();
   const {
     data: { user },
@@ -37,6 +42,12 @@ export default async function AccountPage() {
         {t("kicker")}
       </p>
       <h1 className="mt-2 text-2xl font-bold text-white">{t("title")}</h1>
+
+      {deleteError === "1" ? (
+        <div className="mt-4 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2.5 text-[13px] text-red-300">
+          {t("deleteError")}
+        </div>
+      ) : null}
 
       <div className="mt-6 rounded-2xl border border-white/10 bg-white/3 p-4">
         <p className="text-sm font-semibold text-white">{name ?? user.email}</p>

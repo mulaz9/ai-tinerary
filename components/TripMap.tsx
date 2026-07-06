@@ -9,7 +9,6 @@ import {
   Popup,
   Source,
   useMap,
-  type MapLayerMouseEvent,
 } from "react-map-gl/maplibre";
 import type { FeatureCollection, LineString } from "geojson";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -21,7 +20,6 @@ import {
   setTripMapCache,
   type CachedAccommodationPoint,
   type CachedActivityPoint,
-  type CachedLatLon,
 } from "../lib/trip-map-cache";
 import {
   hasTripGeoChanges,
@@ -76,7 +74,6 @@ const MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
 
 type ActivityPoint = CachedActivityPoint;
 type AccommodationPoint = CachedAccommodationPoint;
-type LatLon = CachedLatLon;
 
 type MapPoint = ActivityPoint | AccommodationPoint;
 
@@ -394,30 +391,6 @@ function TripMapView({
 
   const closePopup = () => onInfoPointChange(null);
 
-  useEffect(() => {
-    // #region agent log
-    fetch("/api/debug-89ffaa", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "89ffaa" },
-      body: JSON.stringify({
-        sessionId: "89ffaa",
-        hypothesisId: "H2-H4",
-        location: "TripMap.tsx:infoPoint-effect",
-        message: "infoPoint state changed",
-        data: {
-          hasInfoPoint: !!infoPoint,
-          kind: infoPoint?.kind ?? null,
-          id:
-            infoPoint?.kind === "activity"
-              ? infoPoint.activityId
-              : infoPoint?.id ?? null,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
-  }, [infoPoint]);
-
   return (
     <MapGL
       initialViewState={{
@@ -429,23 +402,7 @@ function TripMapView({
       style={{ width: "100%", height: "100%" }}
       cooperativeGestures
       reuseMaps
-      onClick={(_e: MapLayerMouseEvent) => {
-        // #region agent log
-        fetch("/api/debug-89ffaa", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "89ffaa" },
-          body: JSON.stringify({
-            sessionId: "89ffaa",
-            hypothesisId: "H1",
-            location: "TripMap.tsx:map-onClick",
-            message: "map background clicked — closing popup",
-            data: { hadInfoPoint: !!infoPoint },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
-        // #endregion
-        closePopup();
-      }}
+      onClick={() => closePopup()}
     >
       <FitMapBounds points={fitPoints} disabled={!!infoPoint} />
       <CenterOnInfoPoint infoPoint={infoPoint} />
@@ -474,20 +431,6 @@ function TripMapView({
             anchor="center"
             onClick={(e) => {
               e.originalEvent.stopPropagation();
-              // #region agent log
-              fetch("/api/debug-89ffaa", {
-                method: "POST",
-                headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "89ffaa" },
-                body: JSON.stringify({
-                  sessionId: "89ffaa",
-                  hypothesisId: "H1-H3",
-                  location: "TripMap.tsx:marker-onClick",
-                  message: "activity marker clicked",
-                  data: { activityId: a.activityId, dayIdx: a.dayIdx },
-                  timestamp: Date.now(),
-                }),
-              }).catch(() => {});
-              // #endregion
               onInfoPointChange(a);
             }}
           >
@@ -540,6 +483,9 @@ const TripMap = ({
   const t = useTranslations("tripMap");
   const tCommon = useTranslations("common");
   const [expanded, setExpanded] = useState(false);
+  // Mount the WebGL map only once the section has been opened at least once,
+  // so collapsed maps don't pay the MapLibre/GPU cost.
+  const [everExpanded, setEverExpanded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(
     null,
@@ -564,6 +510,10 @@ const TripMap = ({
   useEffect(() => {
     geoPersistedRef.current = null;
   }, [cacheKey]);
+
+  useEffect(() => {
+    if (expanded) setEverExpanded(true);
+  }, [expanded]);
 
   const applyResult = (
     result: {
@@ -596,40 +546,6 @@ const TripMap = ({
   useEffect(() => {
     const cached = getTripMapCache(cacheKey);
     const display = mergeMapPointsForDisplay(trip, cached);
-    let source: "trip" | "cache" | "merged" | "empty";
-    if (display.complete) source = "trip";
-    else if (!cached) source = "empty";
-    else if (cached.activities.length + cached.accommodations.length === 0)
-      source = "empty";
-    else if (
-      display.activities.length === cached.activities.length &&
-      display.accommodations.length === cached.accommodations.length
-    )
-      source = "cache";
-    else source = "merged";
-
-    // #region agent log
-    fetch("/api/debug-log", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sessionId: "4dd1f4",
-        hypothesisId: "H1-H3",
-        location: "TripMap.tsx:restore-effect",
-        message: "restore markers effect",
-        data: {
-          source,
-          displayComplete: display.complete,
-          activityCount: display.activities.length,
-          accommodationCount: display.accommodations.length,
-          totalActivities,
-          cacheCovers: cached ? mapCacheCoversTrip(trip, cached) : false,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
-
     setActivities((prev) =>
       sameActivityPoints(prev, display.activities) ? prev : display.activities,
     );
@@ -661,27 +577,6 @@ const TripMap = ({
     setLoading(true);
     setProgress({ done: 0, total: 0 });
 
-    // #region agent log
-    fetch("/api/debug-log", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sessionId: "4dd1f4",
-        hypothesisId: "H3-H5",
-        location: "TripMap.tsx:resolve-geocode",
-        message: "starting geocode (mount or cache miss)",
-        data: {
-          totalActivities,
-          partialCacheActivities: cached?.activities.length ?? 0,
-          cacheCovers: cached ? mapCacheCoversTrip(tripSnapshot, cached) : false,
-          expanded,
-          cacheKey,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
-
     const unsubscribe = subscribeTripMapResolve(cacheKey, tripSnapshot, {
       onProgress: (done, total) => {
         setProgress({ done, total });
@@ -700,7 +595,7 @@ const TripMap = ({
             : partial.accommodations,
         );
       },
-      onDone: ({ activities: acts, accommodations, updatedTrip }) => {
+      onDone: ({ activities: acts, accommodations }) => {
         const hydrated = hydrateActivityPointsFromTrip(tripRef.current, acts);
         setActivities((prev) =>
           sameActivityPoints(prev, hydrated) ? prev : hydrated,
@@ -721,42 +616,9 @@ const TripMap = ({
             geoPersistedRef,
           );
         }
-        // #region agent log
-        fetch("/api/debug-log", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            sessionId: "4dd1f4",
-            hypothesisId: "H3-H5",
-            location: "TripMap.tsx:geocode-done",
-            message: "geocode finished",
-            data: {
-              resolvedActivities: hydrated.length,
-              totalActivities,
-              geoChanged: hasTripGeoChanges(tripRef.current, updatedTrip),
-              cacheKey,
-            },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
-        // #endregion
       },
       onError: () => {
         setLoading(false);
-        // #region agent log
-        fetch("/api/debug-log", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            sessionId: "4dd1f4",
-            hypothesisId: "H3-H5",
-            location: "TripMap.tsx:geocode-error",
-            message: "geocode promise rejected",
-            data: { cacheKey },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
-        // #endregion
       },
     });
 
@@ -776,63 +638,12 @@ const TripMap = ({
     if (!focusTarget) return;
     setExpanded(true);
     const t = window.setTimeout(() => {
-      // #region agent log
-      fetch("/api/debug-89ffaa", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "89ffaa" },
-        body: JSON.stringify({
-          sessionId: "89ffaa",
-          hypothesisId: "H5",
-          location: "TripMap.tsx:scrollIntoView",
-          message: "focusTarget triggered scrollIntoView",
-          data: {
-            activityId: focusTarget.activityId,
-            token: focusTarget.token,
-            scrollY: window.scrollY,
-          },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
       document
         .getElementById("trip-map-section")
         ?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 80);
     return () => window.clearTimeout(t);
   }, [focusTarget?.activityId, focusTarget?.token]);
-
-  useEffect(() => {
-    let lastScrollY = window.scrollY;
-    const onScroll = () => {
-      const dy = Math.abs(window.scrollY - lastScrollY);
-      if (dy > 80) {
-        const section = document.getElementById("trip-map-section");
-        const rect = section?.getBoundingClientRect();
-        // #region agent log
-        fetch("/api/debug-89ffaa", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "89ffaa" },
-          body: JSON.stringify({
-            sessionId: "89ffaa",
-            hypothesisId: "H6-H7",
-            location: "TripMap.tsx:scroll-jump",
-            message: "large scroll delta detected",
-            data: {
-              expanded,
-              scrollY: window.scrollY,
-              delta: window.scrollY - lastScrollY,
-              mapSectionTop: rect?.top ?? null,
-            },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
-        // #endregion
-      }
-      lastScrollY = window.scrollY;
-    };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, [expanded]);
 
   // Close any open popup first, then open the newly requested activity.
   useEffect(() => {
@@ -881,26 +692,7 @@ const TripMap = ({
     >
       <button
         type="button"
-        onClick={() => {
-          setExpanded((v) => {
-            const next = !v;
-            // #region agent log
-            fetch("/api/debug-89ffaa", {
-              method: "POST",
-              headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "89ffaa" },
-              body: JSON.stringify({
-                sessionId: "89ffaa",
-                hypothesisId: "H6-H7",
-                location: "TripMap.tsx:toggle-expanded",
-                message: "map expand/collapse toggled",
-                data: { expanded: next, scrollY: window.scrollY },
-                timestamp: Date.now(),
-              }),
-            }).catch(() => {});
-            // #endregion
-            return next;
-          });
-        }}
+        onClick={() => setExpanded((v) => !v)}
         aria-expanded={expanded}
         className={`flex w-full items-center justify-between gap-3 px-5 py-4 text-left transition-colors hover:bg-white/[0.02] ${
           expanded ? "border-b border-white/[0.06]" : ""
@@ -1036,14 +828,16 @@ const TripMap = ({
             </div>
 
             <div className="trip-map-canvas h-[420px] w-full overflow-hidden rounded-xl border border-white/[0.06]">
-              <TripMapView
-                trip={trip}
-                activities={activities}
-                accommodationPoints={accommodationPoints}
-                selectedDay={selectedDay}
-                infoPoint={infoPoint}
-                onInfoPointChange={setInfoPoint}
-              />
+              {everExpanded ? (
+                <TripMapView
+                  trip={trip}
+                  activities={activities}
+                  accommodationPoints={accommodationPoints}
+                  selectedDay={selectedDay}
+                  infoPoint={infoPoint}
+                  onInfoPointChange={setInfoPoint}
+                />
+              ) : null}
             </div>
           </div>
         </div>

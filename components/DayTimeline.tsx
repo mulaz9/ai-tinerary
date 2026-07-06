@@ -108,9 +108,11 @@ const DayTimeline = ({
   };
 
   // ── Progress ─────────────────────────────────────────────────────────
+  // Count only ids that still exist: `done` may hold entries for
+  // activities that were removed after being checked.
   const completedCount = useMemo(
-    () => Object.values(done).filter(Boolean).length,
-    [done],
+    () => allActivityIds.filter((id) => done[id]).length,
+    [done, allActivityIds],
   );
   const totalCount = allActivityIds.length;
   const pctGlobal = totalCount

@@ -16,7 +16,10 @@
     "serverError": "Serverfehler ({status})",
     "daysCount": "{count, plural, one {# Tag} other {# Tage}}",
     "activitiesCount": "{count, plural, one {# Aktivität} other {# Aktivitäten}}",
-    "tripsCount": "{count, plural, one {# Reise} other {# Reisen}}"
+    "tripsCount": "{count, plural, one {# Reise} other {# Reisen}}",
+    "flagOf": "Flagge {code}",
+    "previousMonth": "Vorheriger Monat",
+    "nextMonth": "Nächster Monat"
   },
   "aiErrors": {
     "provider": "der KI-Anbieter",
@@ -354,7 +357,8 @@
     "signInRequired": "Melde dich an, um dein Konto zu verwalten.",
     "signIn": "Anmelden",
     "signOut": "Abmelden",
-    "privacyPolicy": "Datenschutzerklärung"
+    "privacyPolicy": "Datenschutzerklärung",
+    "deleteError": "Kontolöschung fehlgeschlagen. Bitte versuche es später erneut."
   },
   "privacy": {
     "kicker": "Rechtliches",

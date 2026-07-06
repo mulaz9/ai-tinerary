@@ -6,6 +6,7 @@ import type { Activity, TransportInfo } from "../types";
 import { buildMapsUrl } from "../lib/maps";
 import { buildTimeRange, suggestNextStartTime } from "../lib/activity-time";
 import { isDuplicateActivity } from "../lib/activity-dedup";
+import { useBodyScrollLock } from "../hooks/useBodyScrollLock";
 
 interface AddActivityDialogProps {
   open: boolean;
@@ -74,6 +75,8 @@ export default function AddActivityDialog({
   const [info, setInfo] = useState<string | null>(null);
   const firstFieldRef = useRef<HTMLInputElement>(null);
 
+  useBodyScrollLock(open);
+
   useEffect(() => {
     if (!open) return;
     const suggested = suggestNextStartTime(existingActivities);
@@ -90,7 +93,8 @@ export default function AddActivityDialog({
     setError(null);
     setInfo(null);
     setLoading(false);
-    setTimeout(() => firstFieldRef.current?.focus(), 30);
+    const focusTimer = setTimeout(() => firstFieldRef.current?.focus(), 30);
+    return () => clearTimeout(focusTimer);
   }, [open, existingActivities]);
 
   useEffect(() => {

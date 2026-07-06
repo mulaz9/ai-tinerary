@@ -70,47 +70,47 @@ export async function resolveShareToken(
   const supabase = createSupabaseBrowserClient();
   if (!supabase) return null;
 
+  // Token-scoped SECURITY DEFINER function — RLS no longer exposes
+  // trip_shares rows to non-owners.
   const { data, error } = await supabase
-    .from("trip_shares")
-    .select("trip_id, permission")
-    .eq("share_token", token)
+    .rpc("resolve_share_token", { p_token: token })
     .single();
 
   if (error || !data) return null;
-  return {
-    tripId: data.trip_id as string,
-    permission: data.permission as SharePermission,
-  };
+  const row = data as { trip_id: string; permission: SharePermission };
+  return { tripId: row.trip_id, permission: row.permission };
 }
 
-export async function fetchSharedTrip(tripId: string): Promise<Trip | null> {
+export async function fetchSharedTrip(token: string): Promise<Trip | null> {
   const supabase = createSupabaseBrowserClient();
   if (!supabase) return null;
 
   const { data, error } = await supabase
-    .from("trips")
-    .select("id, data")
-    .eq("id", tripId)
+    .rpc("fetch_shared_trip", { p_token: token })
     .single();
 
   if (error || !data) return null;
-  return migrateTripAccommodations({ ...(data.data as Trip), id: data.id });
+  const row = data as { id: string; data: Trip };
+  return migrateTripAccommodations({ ...row.data, id: row.id });
 }
 
-export async function updateSharedTrip(trip: Trip): Promise<boolean> {
+export async function updateSharedTrip(
+  token: string,
+  trip: Trip,
+): Promise<boolean> {
   const supabase = createSupabaseBrowserClient();
   if (!supabase) return false;
 
-  const { error } = await supabase
-    .from("trips")
-    .update({ data: trip, updated_at: new Date().toISOString() })
-    .eq("id", trip.id);
+  const { data, error } = await supabase.rpc("update_shared_trip", {
+    p_token: token,
+    p_data: trip,
+  });
 
   if (error) {
     console.error("[trip-sharing] updateSharedTrip:", error.message);
     return false;
   }
-  return true;
+  return data === true;
 }
 
 export function buildShareUrl(token: string): string {
@@ -177,27 +177,36 @@ export async function fetchTripsSharedWithMe(): Promise<
   const supabase = createSupabaseBrowserClient();
   if (!supabase) return [];
 
-  const tripIds = visited.map((v) => v.tripId);
-  const { data, error } = await supabase
-    .from("trips")
-    .select("id, data")
-    .in("id", tripIds);
+  const { data, error } = await supabase.rpc("fetch_shared_trips", {
+    p_tokens: visited.map((v) => v.token),
+  });
 
   if (error || !data) return [];
 
-  const tripMap = new Map(data.map((row) => [row.id, row.data as Trip]));
+  const rows = data as Array<{
+    share_token: string;
+    permission: SharePermission;
+    id: string;
+    data: Trip;
+  }>;
+  const byToken = new Map(rows.map((row) => [row.share_token, row]));
   const results: Array<Trip & { _shareToken: string; _sharePermission: SharePermission }> = [];
 
   for (const v of visited) {
-    const tripData = tripMap.get(v.tripId);
-    if (tripData) {
-      const migrated = migrateTripAccommodations({ ...tripData, id: v.tripId });
+    const row = byToken.get(v.token);
+    if (row) {
+      const migrated = migrateTripAccommodations({ ...row.data, id: row.id });
       results.push({
         ...migrated,
         _shareToken: v.token,
-        _sharePermission: v.permission,
+        _sharePermission: row.permission,
       });
     }
+  }
+
+  // Prune revoked/expired shares so they stop cluttering localStorage.
+  if (results.length < visited.length) {
+    writeVisitedShares(visited.filter((v) => byToken.has(v.token)));
   }
   return results;
 }

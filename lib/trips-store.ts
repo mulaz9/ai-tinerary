@@ -35,6 +35,18 @@ let cache: Trip[] = [];
 // Updated by the hook. Mutation functions consult it to decide whether
 // to also upsert into Supabase.
 let authedUserId: string | null = null;
+// Guards guest mutations: writing localStorage from an empty, not-yet-read
+// cache would wipe previously saved guest trips.
+let guestCacheHydrated = false;
+
+function ensureGuestCacheHydrated(): void {
+  if (authedUserId || guestCacheHydrated) return;
+  guestCacheHydrated = true;
+  const stored = readLocal();
+  if (stored.length === 0) return;
+  const ids = new Set(cache.map((t) => t.id));
+  cache = [...cache, ...stored.filter((t) => !ids.has(t.id))];
+}
 
 function dispatchChange() {
   if (typeof window !== "undefined") {
@@ -180,6 +192,7 @@ export function canAddUserTrip(): boolean {
  * call sites can surface an error. Updates to existing trips always succeed.
  */
 export function addUserTrip(trip: Trip): boolean {
+  ensureGuestCacheHydrated();
   const isExisting = cache.some((t) => t.id === trip.id);
   if (!isExisting && cache.length >= MAX_USER_TRIPS) {
     return false;
@@ -194,6 +207,7 @@ export function addUserTrip(trip: Trip): boolean {
 }
 
 export function updateUserTrip(trip: Trip): void {
+  ensureGuestCacheHydrated();
   upsertIntoCache(trip, { moveToTop: false });
   if (authedUserId) {
     void persistTrip(trip, authedUserId);
@@ -203,6 +217,7 @@ export function updateUserTrip(trip: Trip): void {
 }
 
 export function removeUserTrip(id: string): void {
+  ensureGuestCacheHydrated();
   removeFromCache(id);
   if (authedUserId) {
     const userId = authedUserId;
@@ -351,6 +366,7 @@ export function useAllTrips(): {
       }
       channel = null;
       cache = readLocal();
+      guestCacheHydrated = true;
       refreshFromCache();
     }
 

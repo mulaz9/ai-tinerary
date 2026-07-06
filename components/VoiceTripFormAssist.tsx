@@ -7,6 +7,13 @@ import type { ParsedTripForm } from "../lib/ai";
 
 export type VoiceTripFormFields = ParsedTripForm;
 
+/** Local calendar date (YYYY-MM-DD) — UTC would shift "today" for users west of UTC. */
+function localDateKey(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 interface VoiceTripFormAssistProps {
   disabled?: boolean;
   onApply: (fields: VoiceTripFormFields) => void;
@@ -70,7 +77,7 @@ export default function VoiceTripFormAssist({
         body: JSON.stringify({
           transcript: text,
           language: locale,
-          referenceDate: new Date().toISOString().slice(0, 10),
+          referenceDate: localDateKey(),
         }),
       });
       const data = (await res.json()) as {

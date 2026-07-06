@@ -3,7 +3,7 @@
 import { use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import Sidebar from "../../../../components/Sidebar";
 import DayTimeline from "../../../../components/DayTimeline";
 import SafeImage from "../../../../components/SafeImage";
@@ -52,6 +52,7 @@ export default function SharedTripPage({
 }) {
   const { token } = use(params);
   const router = useRouter();
+  const locale = useLocale();
   const t = useTranslations("trip");
   const tCommon = useTranslations("common");
 
@@ -90,6 +91,7 @@ export default function SharedTripPage({
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) {
+        if (!cancelled) setLoading(false);
         router.push(
           `/login?next=${encodeURIComponent(`/trip/shared/${token}`)}`,
         );
@@ -107,7 +109,7 @@ export default function SharedTripPage({
 
       setPermission(resolved.permission);
       saveVisitedShare(token, resolved.tripId, resolved.permission);
-      const tripData = await fetchSharedTrip(resolved.tripId);
+      const tripData = await fetchSharedTrip(token);
       if (!cancelled) {
         if (tripData) {
           setTrip(tripData);
@@ -137,7 +139,8 @@ export default function SharedTripPage({
     let cancelled = false;
     const url =
       `/api/weather?location=${encodeURIComponent(trip.location)}` +
-      `&dates=${encodeURIComponent(weatherDatesKey)}`;
+      `&dates=${encodeURIComponent(weatherDatesKey)}` +
+      `&lang=${encodeURIComponent(locale)}`;
 
     fetch(url)
       .then((res) => (res.ok ? res.json() : { weatherByDate: {} }))
@@ -157,9 +160,9 @@ export default function SharedTripPage({
     (next: Trip) => {
       const normalized = applyMapsOrigin(next);
       setTrip(normalized);
-      void updateSharedTrip(normalized);
+      void updateSharedTrip(token, normalized);
     },
-    [],
+    [token],
   );
 
   const handleChangeDays = useCallback(

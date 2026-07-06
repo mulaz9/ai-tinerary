@@ -16,7 +16,10 @@
     "serverError": "Errore server ({status})",
     "daysCount": "{count, plural, one {# giorno} other {# giorni}}",
     "activitiesCount": "{count, plural, one {# attività} other {# attività}}",
-    "tripsCount": "{count, plural, one {# viaggio} other {# viaggi}}"
+    "tripsCount": "{count, plural, one {# viaggio} other {# viaggi}}",
+    "flagOf": "Bandiera {code}",
+    "previousMonth": "Mese precedente",
+    "nextMonth": "Mese successivo"
   },
   "aiErrors": {
     "provider": "il provider AI",
@@ -354,7 +357,8 @@
     "signInRequired": "Accedi per gestire il tuo account.",
     "signIn": "Accedi",
     "signOut": "Esci",
-    "privacyPolicy": "Informativa sulla privacy"
+    "privacyPolicy": "Informativa sulla privacy",
+    "deleteError": "Eliminazione dell'account non riuscita. Riprova più tardi."
   },
   "privacy": {
     "kicker": "Legale",

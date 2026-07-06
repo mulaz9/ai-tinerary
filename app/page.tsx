@@ -22,7 +22,17 @@ export default function Home() {
   const [sharedTrips, setSharedTrips] = useState<SharedTrip[]>([]);
 
   useEffect(() => {
-    fetchTripsSharedWithMe().then(setSharedTrips);
+    let cancelled = false;
+    fetchTripsSharedWithMe()
+      .then((trips) => {
+        if (!cancelled) setSharedTrips(trips);
+      })
+      .catch(() => {
+        // Network/Supabase hiccup — the section simply stays hidden.
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (

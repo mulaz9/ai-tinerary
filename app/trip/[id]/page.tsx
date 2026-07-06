@@ -98,7 +98,8 @@ export default function TripDetails({
     let cancelled = false;
     const url =
       `/api/weather?location=${encodeURIComponent(trip.location)}` +
-      `&dates=${encodeURIComponent(weatherDatesKey)}`;
+      `&dates=${encodeURIComponent(weatherDatesKey)}` +
+      `&lang=${encodeURIComponent(locale)}`;
 
     fetch(url)
       .then((res) => (res.ok ? res.json() : { weatherByDate: {} }))

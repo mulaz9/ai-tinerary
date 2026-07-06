@@ -8,6 +8,7 @@ import {
   shiftStartTime,
   timeToMinutes,
 } from "../lib/activity-time";
+import { useBodyScrollLock } from "../hooks/useBodyScrollLock";
 
 interface EditTimeDialogProps {
   open: boolean;
@@ -38,6 +39,8 @@ export default function EditTimeDialog({
   const [error, setError] = useState<string | null>(null);
   const startRef = useRef<HTMLInputElement>(null);
 
+  useBodyScrollLock(open);
+
   useEffect(() => {
     if (!open) return;
     const parsed = parseTimeRange(currentTime);
@@ -45,7 +48,8 @@ export default function EditTimeDialog({
     setEnd(parsed.end ?? "");
     setTouchedEnd(false);
     setError(null);
-    setTimeout(() => startRef.current?.focus(), 30);
+    const focusTimer = setTimeout(() => startRef.current?.focus(), 30);
+    return () => clearTimeout(focusTimer);
   }, [open, currentTime]);
 
   useEffect(() => {

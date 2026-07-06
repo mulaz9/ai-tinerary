@@ -16,7 +16,10 @@
     "serverError": "Error del servidor ({status})",
     "daysCount": "{count, plural, one {# día} other {# días}}",
     "activitiesCount": "{count, plural, one {# actividad} other {# actividades}}",
-    "tripsCount": "{count, plural, one {# viaje} other {# viajes}}"
+    "tripsCount": "{count, plural, one {# viaje} other {# viajes}}",
+    "flagOf": "Bandera {code}",
+    "previousMonth": "Mes anterior",
+    "nextMonth": "Mes siguiente"
   },
   "aiErrors": {
     "provider": "el proveedor de IA",
@@ -354,7 +357,8 @@
     "signInRequired": "Inicia sesión para gestionar tu cuenta.",
     "signIn": "Iniciar sesión",
     "signOut": "Cerrar sesión",
-    "privacyPolicy": "Política de privacidad"
+    "privacyPolicy": "Política de privacidad",
+    "deleteError": "No se pudo eliminar la cuenta. Inténtalo de nuevo más tarde."
   },
   "privacy": {
     "kicker": "Legal",

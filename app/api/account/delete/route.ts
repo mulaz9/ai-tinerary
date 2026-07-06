@@ -17,50 +17,31 @@ export async function POST(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   if (userError || !user) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    return NextResponse.redirect(new URL("/login", request.url), {
+      status: 303,
+    });
   }
+
+  // The caller is a plain HTML form, so failures redirect back to /account
+  // with an error flag instead of returning raw JSON.
+  const failureRedirect = () => {
+    const url = new URL("/account", request.url);
+    url.searchParams.set("deleteError", "1");
+    return NextResponse.redirect(url, { status: 303 });
+  };
 
   const admin = createSupabaseAdminClient();
   if (!admin) {
-    return NextResponse.json(
-      { error: "Account deletion is not configured." },
-      { status: 503 },
-    );
+    console.error("[account/delete] admin client not configured");
+    return failureRedirect();
   }
 
-  const userId = user.id;
-
-  const { error: sharesError } = await admin
-    .from("trip_shares")
-    .delete()
-    .eq("owner_id", userId);
-  if (sharesError) {
-    console.error("[account/delete] trip_shares:", sharesError.message);
-    return NextResponse.json(
-      { error: "Failed to delete shared trip links." },
-      { status: 500 },
-    );
-  }
-
-  const { error: tripsError } = await admin
-    .from("trips")
-    .delete()
-    .eq("user_id", userId);
-  if (tripsError) {
-    console.error("[account/delete] trips:", tripsError.message);
-    return NextResponse.json(
-      { error: "Failed to delete trips." },
-      { status: 500 },
-    );
-  }
-
-  const { error: deleteUserError } = await admin.auth.admin.deleteUser(userId);
+  // trips.user_id and trip_shares.owner_id both cascade from auth.users, so
+  // deleting the user atomically removes trips and share links too.
+  const { error: deleteUserError } = await admin.auth.admin.deleteUser(user.id);
   if (deleteUserError) {
     console.error("[account/delete] auth:", deleteUserError.message);
-    return NextResponse.json(
-      { error: "Failed to delete account." },
-      { status: 500 },
-    );
+    return failureRedirect();
   }
 
   await supabase.auth.signOut();

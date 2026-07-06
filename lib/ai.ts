@@ -1,5 +1,10 @@
 import { Accommodation, Activity, Day, Trip, TransportInfo } from "../types";
-import { LANGUAGE_FOR_AI, normalizeLocale } from "../i18n/config";
+import {
+  LANGUAGE_FOR_AI,
+  defaultLocale,
+  normalizeLocale,
+  type Locale,
+} from "../i18n/config";
 import { dedupeTripDays, isDuplicateActivity } from "./activity-dedup";
 import { lookupImage } from "./images";
 import { buildMapsUrl } from "./maps";
@@ -342,13 +347,61 @@ async function coverImageFor(destination: string): Promise<string | undefined> {
   return lookupImage(`${primary} cityscape`);
 }
 
-function normalizeTransport(raw: RawActivity["transport"]): TransportInfo {
+/**
+ * Locale-aware fallback strings used when the model omits a field, so
+ * non-Italian trips don't get Italian placeholders.
+ */
+const AI_FALLBACKS: Record<
+  Locale,
+  {
+    onFoot: string;
+    activity: string;
+    day: (n: number) => string;
+    description: (destination: string) => string;
+  }
+> = {
+  it: {
+    onFoot: "A piedi",
+    activity: "Attività",
+    day: (n) => `Giorno ${n}`,
+    description: (d) => `Itinerario per ${d}, generato con AI.`,
+  },
+  en: {
+    onFoot: "On foot",
+    activity: "Activity",
+    day: (n) => `Day ${n}`,
+    description: (d) => `AI-generated itinerary for ${d}.`,
+  },
+  fr: {
+    onFoot: "À pied",
+    activity: "Activité",
+    day: (n) => `Jour ${n}`,
+    description: (d) => `Itinéraire pour ${d}, généré par IA.`,
+  },
+  es: {
+    onFoot: "A pie",
+    activity: "Actividad",
+    day: (n) => `Día ${n}`,
+    description: (d) => `Itinerario para ${d}, generado con IA.`,
+  },
+  de: {
+    onFoot: "Zu Fuß",
+    activity: "Aktivität",
+    day: (n) => `Tag ${n}`,
+    description: (d) => `KI-generierte Reiseroute für ${d}.`,
+  },
+};
+
+function normalizeTransport(
+  raw: RawActivity["transport"],
+  locale: Locale = defaultLocale,
+): TransportInfo {
   const mode = (TRANSPORT_MODES as readonly string[]).includes(raw?.mode ?? "")
     ? (raw!.mode as TransportInfo["mode"])
     : "walk";
   return {
     mode,
-    summary: raw?.summary?.trim() || "A piedi",
+    summary: raw?.summary?.trim() || AI_FALLBACKS[locale].onFoot,
   };
 }
 
@@ -400,6 +453,8 @@ async function normalizeTrip(
   const accommodations = buildAccommodations(input);
   const defaultAccommodationId = accommodations[0]?.id;
   const defaultOrigin = accommodations[0]?.name;
+  const locale = normalizeLocale(input.language);
+  const fallbacks = AI_FALLBACKS[locale];
 
   const days: Day[] = expectedDates.map((date, idx) => {
     const rd = byDate.get(date) ?? rawDays[idx] ?? {};
@@ -408,7 +463,7 @@ async function normalizeTrip(
     const activities: Activity[] = (rd.activities ?? []).map((ra, aIdx) => ({
       id: `${dayId}-a${aIdx + 1}`,
       time: ra.time?.trim() || "",
-      title: ra.title?.trim() || "Attività",
+      title: ra.title?.trim() || fallbacks.activity,
       description: ra.description?.trim() || "",
       location: ra.location?.trim() || input.destination,
       tags: Array.isArray(ra.tags) ? ra.tags.filter(Boolean) : undefined,
@@ -420,14 +475,14 @@ async function normalizeTrip(
         destination: input.destination,
         origin: defaultOrigin,
       }),
-      transport: normalizeTransport(ra.transport),
+      transport: normalizeTransport(ra.transport, locale),
     }));
 
     return {
       id: dayId,
       day: dayNumber,
       date,
-      title: rd.title?.trim() || `Giorno ${dayNumber}`,
+      title: rd.title?.trim() || fallbacks.day(dayNumber),
       summary: rd.summary?.trim() || "",
       activities,
       accommodationId: defaultAccommodationId,
@@ -448,8 +503,7 @@ async function normalizeTrip(
     name: raw.name?.trim() || input.destination,
     subtitle: raw.subtitle?.trim() || `${startDate} → ${endDate}`,
     description:
-      raw.description?.trim() ||
-      `Itinerario per ${input.destination}, generato con AI.`,
+      raw.description?.trim() || fallbacks.description(input.destination),
     startDate,
     endDate,
     location: input.destination,
@@ -1032,11 +1086,22 @@ async function callGeminiActivity(
     },
   };
   const url = `${GEMINI_BASE}/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    // A thrown TypeError would skip provider fallback in the callers.
+    throw new AIError(
+      err instanceof Error ? err.message : "Errore di rete.",
+      "network",
+      undefined,
+      "gemini",
+    );
+  }
   if (!res.ok) {
     const errText = await res.text().catch(() => "");
     let apiMsg: string | undefined;
@@ -1189,7 +1254,10 @@ export async function generateActivity(
           destination: input.destination,
           origin: input.accommodation,
         }),
-        transport: normalizeTransport(raw.transport),
+        transport: normalizeTransport(
+          raw.transport,
+          normalizeLocale(input.language),
+        ),
       };
       // Only snap/replace when this is actually a restaurant, so a user-chosen
       // landmark is never swapped for an eatery.
@@ -1702,24 +1770,6 @@ export async function parseTripFormFromSpeech(
     const { id: provider, getText } = attempts[i];
     try {
       const text = await getText();
-      // #region agent log
-      fetch("http://127.0.0.1:7872/ingest/266cf421-78fa-40dc-aeaf-b1a54776429d", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "89ffaa" },
-        body: JSON.stringify({
-          sessionId: "89ffaa",
-          hypothesisId: "HD3",
-          location: "ai.ts:parseTripFormFromSpeech",
-          message: "raw model response for trip form parse",
-          data: {
-            provider,
-            referenceDate: input.referenceDate ?? null,
-            rawText: text.slice(0, 500),
-          },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
       const raw = JSON.parse(extractJsonObject(text)) as RawParsedTripForm;
       return { form: normalizeParsedTripForm(raw), provider };
     } catch (err) {

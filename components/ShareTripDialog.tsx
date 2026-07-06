@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
+import { useBodyScrollLock } from "../hooks/useBodyScrollLock";
 import type { SharePermission, TripShare } from "../types";
 import {
   buildShareUrl,
@@ -28,6 +29,15 @@ export default function ShareTripDialog({
   const [shares, setShares] = useState<TripShare[]>([]);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useBodyScrollLock(open);
+
+  useEffect(() => {
+    return () => {
+      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -71,7 +81,8 @@ export default function ShareTripDialog({
     const url = buildShareUrl(token);
     navigator.clipboard.writeText(url).then(() => {
       setCopied(token);
-      setTimeout(() => setCopied(null), 2000);
+      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+      copiedTimerRef.current = setTimeout(() => setCopied(null), 2000);
     });
   }
 
